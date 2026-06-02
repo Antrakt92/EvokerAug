@@ -283,6 +283,39 @@ def test_profile_callbacks_use_single_combat_aware_apply_path():
     assert "ApplyActiveProfile()" in regen_body
 
 
+def test_malformed_savedvariables_are_normalized_before_profile_use():
+    assert "NormalizeProfileShape" in CORE
+
+    normalize_body = function_body(CORE, "NormalizeProfileShape")
+    for table_key in (
+        "buffList",
+        "disabledBuffList",
+        "customBuffList",
+        "favoriPlayer",
+        "macro",
+        "tankMacros",
+        "dpsMacros",
+        "charSpell",
+        "minimap",
+        "positions",
+    ):
+        assert f'EnsureProfileTable(profile, defaults, "{table_key}")' in normalize_body
+
+    assert 'ClampNumberSetting(profile, defaults, "buttonHeight", 20, 40)' in normalize_body
+    assert 'ClampNumberSetting(profile, defaults, "spellIconSize", 20, 40)' in normalize_body
+    assert 'ClampNumberSetting(profile, defaults, "spellIconTextSize", 12, 20)' in normalize_body
+    assert 'if not sortTypes[profile.sortType] then' in normalize_body
+    assert "profile.sortType = defaults.sortType" in normalize_body
+
+    init_body = function_body(CORE, "addon:OnInitialize")
+    assert "NormalizeProfileShape()" in init_body
+    assert init_body.index("NormalizeProfileShape()") < init_body.index("SeedCustomBuffListFromBuffList()")
+
+    apply_body = function_body(CORE, "ApplyActiveProfile")
+    assert "NormalizeProfileShape()" in apply_body
+    assert apply_body.index("NormalizeProfileShape()") < apply_body.index("SeedCustomBuffListFromBuffList()")
+
+
 def test_favorite_frames_use_real_party_unit_tokens():
     body = function_body(CORE, "AddFrameFavorite")
     assert "AddFavoriteFrameForUnit" in CORE

@@ -493,6 +493,96 @@ local sortTypes = {
     ["ROLE"] = sortFramesByRole,
 }
 
+local function CopyDefaultValue(value)
+    if type(value) ~= "table" then
+        return value
+    end
+
+    local copy = {}
+    for k, v in pairs(value) do
+        copy[k] = CopyDefaultValue(v)
+    end
+    return copy
+end
+
+local function EnsureProfileTable(profile, defaults, key)
+    if type(profile[key]) ~= "table" then
+        profile[key] = CopyDefaultValue(defaults[key] or {})
+    end
+    return profile[key]
+end
+
+local function EnsureDefaultTableFields(profileTable, defaultTable)
+    if type(profileTable) ~= "table" or type(defaultTable) ~= "table" then
+        return
+    end
+
+    for key, defaultValue in pairs(defaultTable) do
+        if type(defaultValue) == "table" then
+            if type(profileTable[key]) ~= "table" then
+                profileTable[key] = CopyDefaultValue(defaultValue)
+            else
+                EnsureDefaultTableFields(profileTable[key], defaultValue)
+            end
+        elseif profileTable[key] == nil or type(profileTable[key]) ~= type(defaultValue) then
+            profileTable[key] = defaultValue
+        end
+    end
+end
+
+local function ClampNumberSetting(profile, defaults, key, minValue, maxValue)
+    local value = profile[key]
+    if type(value) ~= "number" or value ~= value then
+        value = defaults[key]
+    end
+    if type(value) ~= "number" then
+        value = minValue
+    end
+
+    if value < minValue then
+        value = minValue
+    elseif value > maxValue then
+        value = maxValue
+    end
+    profile[key] = value
+end
+
+local function NormalizeProfileShape()
+    if not addon.db or not addon.db.profile then
+        return
+    end
+
+    local profile = addon.db.profile
+    local defaults = addon.DefaultProfile and addon.DefaultProfile.profile
+    if type(defaults) ~= "table" then
+        return
+    end
+
+    EnsureProfileTable(profile, defaults, "buffList")
+    EnsureProfileTable(profile, defaults, "disabledBuffList")
+    EnsureProfileTable(profile, defaults, "customBuffList")
+    EnsureProfileTable(profile, defaults, "favoriPlayer")
+    EnsureProfileTable(profile, defaults, "macro")
+    EnsureProfileTable(profile, defaults, "tankMacros")
+    EnsureProfileTable(profile, defaults, "dpsMacros")
+    EnsureProfileTable(profile, defaults, "charSpell")
+    EnsureProfileTable(profile, defaults, "minimap")
+    EnsureProfileTable(profile, defaults, "positions")
+
+    EnsureDefaultTableFields(profile.macro, defaults.macro)
+    EnsureDefaultTableFields(profile.tankMacros, defaults.tankMacros)
+    EnsureDefaultTableFields(profile.dpsMacros, defaults.dpsMacros)
+    EnsureDefaultTableFields(profile.minimap, defaults.minimap)
+
+    ClampNumberSetting(profile, defaults, "buttonHeight", 20, 40)
+    ClampNumberSetting(profile, defaults, "spellIconSize", 20, 40)
+    ClampNumberSetting(profile, defaults, "spellIconTextSize", 12, 20)
+
+    if not sortTypes[profile.sortType] then
+        profile.sortType = defaults.sortType
+    end
+end
+
 -- Minimap Icon
 
 CheckShoworHide = function()
@@ -2136,6 +2226,7 @@ local function ClearSelectedFrameState()
 end
 
 local function ApplyActiveProfile()
+    NormalizeProfileShape()
     EnsureTrackedBuffStateTables()
     SeedCustomBuffListFromBuffList()
     NormalizeFavoriteList()
@@ -2178,6 +2269,7 @@ end
 
 function addon:OnInitialize()
     self.db = LibStub('AceDB-3.0'):New(addonName .. "DB", self.DefaultProfile, true)
+    NormalizeProfileShape()
     SeedCustomBuffListFromBuffList()
     self.db.RegisterCallback(self, "OnProfileReset", "Reconfigure")
     self.db.RegisterCallback(self, "OnProfileChanged", "Reconfigure")
