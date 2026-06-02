@@ -1976,7 +1976,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
             local frameIndex = GetPlayerFrameIndexByUnit(unit)
             if info.addedAuras and #info.addedAuras > 0 and selectedPlayerFrames[frameIndex] then
                 for _, v in ipairs(info.addedAuras) do
-                    if addon.db.profile.buffList[v.spellId] then
+                    if IsTrackedBuffEnabled(v.spellId) then
                         if IsCleanPositiveNumber(v.expirationTime) and selectedPlayerFrames[frameIndex] then
                             AddBuffIcon(selectedPlayerFrames[frameIndex], v.auraInstanceID, v.expirationTime, v.icon,
                                 v.duration, v.spellId)
@@ -1987,7 +1987,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
             if info.updatedAuraInstanceIDs and #info.updatedAuraInstanceIDs > 0 and selectedPlayerFrames[frameIndex] then
                 for _, v in ipairs(info.updatedAuraInstanceIDs) do
                     local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, v)
-                    if aura and addon.db.profile.buffList[aura.spellId] then
+                    if aura and IsTrackedBuffEnabled(aura.spellId) then
                         if IsCleanPositiveNumber(aura.expirationTime) then
                             AddBuffIcon(selectedPlayerFrames[frameIndex], aura.auraInstanceID, aura.expirationTime,
                                 aura.icon, aura.duration, aura.spellId)

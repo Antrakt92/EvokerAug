@@ -29,6 +29,7 @@
 - Fixed the OmniCD support option so the requested state is saved even when OmniCD is absent.
 - Fixed release packaging so public release notes use the curated changelog.
 - Fixed tracked-buff persistence so disabled default buffs and saved custom spell IDs survive reloads.
+- Fixed incremental aura updates so disabled tracked buffs cannot reappear between full aura refreshes.
 
 ### Added
 

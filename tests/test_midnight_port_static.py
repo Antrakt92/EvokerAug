@@ -201,6 +201,11 @@ def test_tracked_buffs_use_explicit_disabled_and_custom_state():
     add_icons_body = function_body(CORE, "AddBuffIcons")
     assert "IsTrackedBuffEnabled(k)" in add_icons_body
 
+    unit_aura_body = CORE[CORE.index('elseif event == "UNIT_AURA"') :]
+    unit_aura_body = unit_aura_body[: unit_aura_body.index('elseif event == "UNIT_FLAGS"')]
+    assert "IsTrackedBuffEnabled(v.spellId)" in unit_aura_body
+    assert "IsTrackedBuffEnabled(aura.spellId)" in unit_aura_body
+
     spell_add_body = function_body(CORE, "SpellListAdd")
     assert "SetTrackedBuff(spellId, Spell.name, true, true)" in spell_add_body
     assert "AddTrackedBuffOption(spellId, Spell.name, Spell.iconID, true" in spell_add_body
