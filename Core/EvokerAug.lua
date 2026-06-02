@@ -724,6 +724,11 @@ local function SanitizePosition(position)
     return point, xOffset, yOffset
 end
 
+local function CanSetUserPlaced(frame)
+    return frame
+        and ((frame.IsMovable and frame:IsMovable()) or (frame.IsResizable and frame:IsResizable()))
+end
+
 local function LoadPosition(frame)
     addon.db.profile.positions = addon.db.profile.positions or {}
     local point, xOffset, yOffset = SanitizePosition(addon.db.profile.positions)
@@ -733,7 +738,7 @@ local function LoadPosition(frame)
 
     frame:ClearAllPoints()
     frame:SetPoint(point, UIParent, point, xOffset, yOffset)
-    if frame.SetUserPlaced then
+    if frame.SetUserPlaced and CanSetUserPlaced(frame) then
         frame:SetUserPlaced(true)
     end
 end
@@ -2311,9 +2316,9 @@ function addon:OnEnable() -- PLAYER_LOGIN
 
     selectedPlayerFrameContainer = CreateFrame("Frame", "EvokerAug", UIParent,
         BackdropTemplateMixin and "BackdropTemplate")
-    LoadPosition(selectedPlayerFrameContainer)
     selectedPlayerFrameContainer:SetSize(200, 20)
     selectedPlayerFrameContainer:SetMovable(true)
+    LoadPosition(selectedPlayerFrameContainer)
     selectedPlayerFrameContainer:EnableMouse(true)
     selectedPlayerFrameContainer:RegisterForDrag("LeftButton")
     selectedPlayerFrameContainer:RegisterEvent("GROUP_ROSTER_UPDATE")

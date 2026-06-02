@@ -547,8 +547,13 @@ def test_settings_frame_mutations_are_combat_gated():
 def test_saved_frame_position_is_sanitized_and_saved_on_logout():
     assert "VALID_FRAME_POINTS" in CORE
     assert "SanitizePosition" in CORE
+    assert "CanSetUserPlaced" in CORE
     assert "LoadPosition" in CORE
     assert "SavePosition" in CORE
+
+    user_placed_body = function_body(CORE, "CanSetUserPlaced")
+    assert "frame:IsMovable()" in user_placed_body
+    assert "frame:IsResizable()" in user_placed_body
 
     sanitize_body = function_body(CORE, "SanitizePosition")
     assert "VALID_FRAME_POINTS[position.point]" in sanitize_body
@@ -559,6 +564,7 @@ def test_saved_frame_position_is_sanitized_and_saved_on_logout():
     load_body = function_body(CORE, "LoadPosition")
     assert "frame:ClearAllPoints()" in load_body
     assert "frame:SetPoint(point, UIParent, point, xOffset, yOffset)" in load_body
+    assert "CanSetUserPlaced(frame)" in load_body
     assert "frame:SetUserPlaced(true)" in load_body
 
     save_body = function_body(CORE, "SavePosition")
@@ -568,6 +574,9 @@ def test_saved_frame_position_is_sanitized_and_saved_on_logout():
 
     on_enable_body = function_body(CORE, "addon:OnEnable")
     assert "LoadPosition(selectedPlayerFrameContainer)" in on_enable_body
+    assert on_enable_body.index("selectedPlayerFrameContainer:SetMovable(true)") < on_enable_body.index(
+        "LoadPosition(selectedPlayerFrameContainer)"
+    )
     assert 'selectedPlayerFrameContainer:RegisterEvent("PLAYER_LOGOUT")' in on_enable_body
     assert 'selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")' in on_enable_body
     assert "SavePosition(selectedPlayerFrameContainer)" in on_enable_body
