@@ -43,7 +43,7 @@ jobs:
           fetch-depth: 0
 
       - name: Package 
-        uses: BigWigsMods/packager@master
+        uses: BigWigsMods/packager@12e08b28e30e3df84cc508525ebfcdf3818ad86c
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           WOWI_API_TOKEN: ${{ secrets.WOWI_API_TOKEN }}

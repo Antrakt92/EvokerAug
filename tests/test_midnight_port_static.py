@@ -844,6 +844,11 @@ def test_release_workflow_gates_packager_on_static_checks():
     assert "luac5.1 -p Core/Config.lua Core/EvokerAug.lua Core/SpellList.lua" in WORKFLOW
 
 
+def test_release_workflow_pins_packager_action():
+    assert "BigWigsMods/packager@master" not in WORKFLOW
+    assert re.search(r"uses:\s+BigWigsMods/packager@[0-9a-f]{40}", WORKFLOW)
+
+
 def test_release_version_preflight_accepts_matching_metadata():
     result = subprocess.run(
         [
