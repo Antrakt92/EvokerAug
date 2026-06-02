@@ -45,6 +45,7 @@
 ### Added
 
 - Added a separate movable Prescience Thin Tracker with compact DPS-only bars for Mythic+ refresh timing.
+- Added a Thin Tracker test mode in settings for previewing the two simulated DPS bars while positioning and tuning the tracker.
 - Added static regression checks for Midnight compatibility invariants.
 - Added local packaging support for reproducible manual test zips.
 - Added a release preflight CI gate before public packaging and uploads.

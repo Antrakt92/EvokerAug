@@ -45,6 +45,12 @@ local prescienceThinTrackerFrame
 local prescienceThinTrackerRows = {}
 local prescienceThinTrackerRowOrder = {}
 local prescienceThinTrackerUpdateElapsed = 0
+local prescienceThinTrackerTestMode = false
+local PRESCIENCE_THIN_TRACKER_TEST_DURATION = 18
+local PRESCIENCE_THIN_TRACKER_TEST_MEMBERS = {
+    { identityKey = "test-thin-tracker-mage", name = "Test Mage", class = "MAGE", unit = "player", remaining = 17 },
+    { identityKey = "test-thin-tracker-rogue", name = "Test Rogue", class = "ROGUE", unit = "player", remaining = 10 },
+}
 local CheckShoworHide
 local HideAllSubFrames
 local EnableAllFrame
@@ -1789,9 +1795,18 @@ local function IsPrescienceThinTrackerRuntimeAllowed()
     end
 
     local settings = addon.db.profile.prescienceThinTracker
-    if type(settings) ~= "table" or settings.enabled == false then
+    if type(settings) ~= "table" then
         return false
     end
+
+    if prescienceThinTrackerTestMode then
+        return true
+    end
+
+    if settings.enabled == false then
+        return false
+    end
+
     if GetUnitClassToken("player") ~= "EVOKER" then
         return false
     end
@@ -1912,6 +1927,10 @@ UpdatePrescienceThinTrackerRows = function()
         local duration = row.duration
         if IsCleanPositiveNumber(expirationTime) and IsCleanPositiveNumber(duration) then
             local remaining = expirationTime - now
+            if remaining <= 0 and prescienceThinTrackerTestMode and row.isTestRow then
+                row.expirationTime = now + duration
+                remaining = duration
+            end
             if remaining > 0 then
                 width = settings.rowWidth * (remaining / duration)
                 width = math.max(1, math.min(settings.rowWidth, width))
@@ -1928,7 +1947,35 @@ UpdatePrescienceThinTrackerRows = function()
     end
 end
 
+local function RefreshPrescienceThinTrackerTestRows()
+    CreatePrescienceThinTrackerFrame()
+    if not prescienceThinTrackerFrame then
+        return
+    end
+
+    ClearPrescienceThinTrackerRows()
+    local now = GetTime()
+    for _, member in ipairs(PRESCIENCE_THIN_TRACKER_TEST_MEMBERS) do
+        local row = CreatePrescienceThinTrackerRow(member)
+        if row then
+            local remaining = member.remaining or PRESCIENCE_THIN_TRACKER_TEST_DURATION
+            row.isTestRow = true
+            row.duration = PRESCIENCE_THIN_TRACKER_TEST_DURATION
+            row.expirationTime = now + remaining
+            table.insert(prescienceThinTrackerRowOrder, row)
+        end
+    end
+
+    LayoutPrescienceThinTrackerRows()
+    UpdatePrescienceThinTrackerRows()
+end
+
 RefreshPrescienceThinTrackerAuras = function(unit)
+    if prescienceThinTrackerTestMode then
+        UpdatePrescienceThinTrackerRows()
+        return
+    end
+
     if not prescienceThinTrackerFrame then
         return
     end
@@ -1953,9 +2000,10 @@ UpdatePrescienceThinTrackerVisibility = function()
         return
     end
 
-    local settings = addon.db.profile.prescienceThinTracker
     local hasRows = #prescienceThinTrackerRowOrder > 0
-    if IsPrescienceThinTrackerRuntimeAllowed() and (hasRows or not settings.locked) then
+    if prescienceThinTrackerTestMode then
+        prescienceThinTrackerFrame:Show()
+    elseif IsPrescienceThinTrackerRuntimeAllowed() and hasRows then
         prescienceThinTrackerFrame:Show()
     else
         prescienceThinTrackerFrame:Hide()
@@ -1968,6 +2016,12 @@ RefreshPrescienceThinTrackerRoster = function()
     end
 
     CreatePrescienceThinTrackerFrame()
+    if prescienceThinTrackerTestMode then
+        RefreshPrescienceThinTrackerTestRows()
+        UpdatePrescienceThinTrackerVisibility()
+        return
+    end
+
     if not IsPrescienceThinTrackerRuntimeAllowed() then
         ClearPrescienceThinTrackerRows()
         UpdatePrescienceThinTrackerVisibility()
@@ -1981,6 +2035,7 @@ RefreshPrescienceThinTrackerRoster = function()
         if member.role == "DPS" and not UnitIsUnit(member.unit, "player") then
             local row = CreatePrescienceThinTrackerRow(member)
             if row then
+                row.isTestRow = nil
                 seenRows[member.identityKey] = true
                 table.insert(prescienceThinTrackerRowOrder, row)
             end
@@ -2000,6 +2055,12 @@ RefreshPrescienceThinTrackerRoster = function()
 
     LayoutPrescienceThinTrackerRows()
     RefreshPrescienceThinTrackerAuras()
+    UpdatePrescienceThinTrackerVisibility()
+end
+
+local function SetPrescienceThinTrackerTestMode(enabled)
+    prescienceThinTrackerTestMode = enabled == true
+    RefreshPrescienceThinTrackerRoster()
     UpdatePrescienceThinTrackerVisibility()
 end
 
@@ -2998,8 +3059,20 @@ local function GetOptions()
                             UpdatePrescienceThinTrackerVisibility()
                         end,
                     },
-                    prescienceThinTrackerWidth = {
+                    prescienceThinTrackerTestMode = {
                         order = 28,
+                        type = 'toggle',
+                        name = "Test Thin Tracker",
+                        desc = "Show simulated DPS Prescience bars so you can position and tune the tracker.",
+                        get = function()
+                            return prescienceThinTrackerTestMode
+                        end,
+                        set = function(info, value)
+                            SetPrescienceThinTrackerTestMode(value)
+                        end,
+                    },
+                    prescienceThinTrackerWidth = {
+                        order = 29,
                         type = 'range',
                         name = "Thin Tracker Width",
                         desc = "Set the compact Prescience tracker row width.",
@@ -3017,7 +3090,7 @@ local function GetOptions()
                         end,
                     },
                     prescienceThinTrackerHeight = {
-                        order = 29,
+                        order = 30,
                         type = 'range',
                         name = "Thin Tracker Height",
                         desc = "Set the compact Prescience tracker row height.",
@@ -3035,7 +3108,7 @@ local function GetOptions()
                         end,
                     },
                     prescienceThinTrackerSpacing = {
-                        order = 30,
+                        order = 31,
                         type = 'range',
                         name = "Thin Tracker Spacing",
                         desc = "Set the gap between compact Prescience tracker rows.",
@@ -3052,7 +3125,7 @@ local function GetOptions()
                         end,
                     },
                     ebonmight = {
-                        order = 31,
+                        order = 32,
                         type = 'toggle',
                         name = "Ebon Might Progress Bar",
                         desc = "When enabled for Ebon Might, the dynamic bar is shown; when disabled, it is hidden.",
@@ -3684,6 +3757,9 @@ function addon:OnEnable() -- PLAYER_LOGIN
             RefreshPrescienceThinTrackerRoster()
         elseif event == "PLAYER_REGEN_DISABLED" then
             combatLockdown = true
+            if prescienceThinTrackerTestMode then
+                SetPrescienceThinTrackerTestMode(false)
+            end
         elseif event == "PLAYER_LOGOUT" then
             SavePosition(selectedPlayerFrameContainer)
             SavePositionToTable(prescienceThinTrackerFrame, addon.db.profile.prescienceThinTracker.position)

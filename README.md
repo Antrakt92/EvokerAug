@@ -7,6 +7,7 @@ EvokerAug is a Retail Midnight 12.x helper for Augmentation Evokers who want a c
 - Shows selected party members as class-coloured frames for quick buff targeting.
 - Tracks Prescience with a shrinking row fill so refresh timing is visible at a glance.
 - Adds a separate movable Prescience Thin Tracker with small DPS-only bars for clean Mythic+ refresh timing.
+- Includes a Thin Tracker test mode in settings so the bars can be previewed and tuned without a party.
 - Shows active tracked buff icons, including Prescience and other Augmentation support buffs.
 - Supports favorites, auto-fill, frame sorting, icon sizing, and an optional Ebon Might progress bar.
 - Opens settings with `/aug`, the minimap/compartment button, or the frame controls.

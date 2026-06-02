@@ -776,6 +776,76 @@ def test_prescience_thin_tracker_wires_into_existing_events_without_replacing_ol
     assert "RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)" in aura_event_body
 
 
+def test_prescience_thin_tracker_test_mode_is_runtime_only():
+    assert "prescienceThinTrackerTestMode" in CORE
+    assert "PRESCIENCE_THIN_TRACKER_TEST_MEMBERS" in CORE
+    assert "prescienceThinTrackerTestMode" not in CONFIG
+
+    assert "SetPrescienceThinTrackerTestMode" in CORE
+    mode_body = function_body(CORE, "SetPrescienceThinTrackerTestMode")
+    assert "prescienceThinTrackerTestMode = enabled == true" in mode_body
+    assert "addon.db.profile.prescienceThinTracker.test" not in mode_body
+    assert "RefreshPrescienceThinTrackerRoster()" in mode_body
+    assert "UpdatePrescienceThinTrackerVisibility()" in mode_body
+
+
+def test_prescience_thin_tracker_test_mode_builds_preview_rows_without_aura_reads():
+    assert "RefreshPrescienceThinTrackerTestRows" in CORE
+
+    assert CORE.count('identityKey = "test-thin-tracker-') == 2
+    assert 'name = "Test Mage"' in CORE
+    assert 'name = "Test Rogue"' in CORE
+    assert 'name = "Test Hunter"' not in CORE
+
+    test_body = function_body(CORE, "RefreshPrescienceThinTrackerTestRows")
+    assert "ClearPrescienceThinTrackerRows()" in test_body
+    assert "PRESCIENCE_THIN_TRACKER_TEST_MEMBERS" in test_body
+    assert "CreatePrescienceThinTrackerRow(member)" in test_body
+    assert "GetTime()" in test_body
+    assert "row.isTestRow = true" in test_body
+    assert "row.duration = PRESCIENCE_THIN_TRACKER_TEST_DURATION" in test_body
+    assert "row.expirationTime = now + remaining" in test_body
+    assert "FindTrackedAuraBySpellID" not in test_body
+
+    roster_body = function_body(CORE, "RefreshPrescienceThinTrackerRoster")
+    assert "if prescienceThinTrackerTestMode then" in roster_body
+    assert "RefreshPrescienceThinTrackerTestRows()" in roster_body
+
+    aura_body = function_body(CORE, "RefreshPrescienceThinTrackerAuras")
+    assert "if prescienceThinTrackerTestMode then" in aura_body
+    assert "UpdatePrescienceThinTrackerRows()" in aura_body
+    assert "RefreshPrescienceThinTrackerTestRows()\n        return" not in aura_body
+
+
+def test_prescience_thin_tracker_test_mode_cycles_and_empty_live_anchor_stays_hidden():
+    update_body = function_body(CORE, "UpdatePrescienceThinTrackerRows")
+    assert "prescienceThinTrackerTestMode and row.isTestRow" in update_body
+    assert "row.expirationTime = now + duration" in update_body
+    assert "settings.rowWidth * (remaining / duration)" in update_body
+
+    visibility_body = function_body(CORE, "UpdatePrescienceThinTrackerVisibility")
+    assert "if prescienceThinTrackerTestMode then" in visibility_body
+    assert "prescienceThinTrackerFrame:Show()" in visibility_body
+    assert "IsPrescienceThinTrackerRuntimeAllowed() and hasRows" in visibility_body
+    assert "(hasRows or not settings.locked)" not in visibility_body
+
+
+def test_prescience_thin_tracker_test_mode_turns_off_when_real_combat_starts():
+    regen_disabled_body = CORE[CORE.index('elseif event == "PLAYER_REGEN_DISABLED"') :]
+    regen_disabled_body = regen_disabled_body[: regen_disabled_body.index('elseif event == "PLAYER_LOGOUT"')]
+    assert "combatLockdown = true" in regen_disabled_body
+    assert "SetPrescienceThinTrackerTestMode(false)" in regen_disabled_body
+
+
+def test_prescience_thin_tracker_options_include_test_mode_button():
+    options_body = function_body(CORE, "GetOptions")
+    assert "prescienceThinTrackerTestMode" in options_body
+    assert 'name = "Test Thin Tracker"' in options_body
+    assert 'desc = "Show simulated DPS Prescience bars so you can position and tune the tracker."' in options_body
+    assert "SetPrescienceThinTrackerTestMode(value)" in options_body
+    assert "addon.db.profile.prescienceThinTracker.test" not in options_body
+
+
 def test_buff_icon_spacing_tracks_icon_size_changes():
     reposition_body = function_body(CORE, "RepositionBuffIcons")
     assert "addon.db.profile.spellIconSize" in reposition_body
