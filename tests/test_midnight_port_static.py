@@ -105,8 +105,8 @@ def test_midnight_devourer_uses_generic_demon_hunter_dps_path():
     assert 'combatRole = "DPS"' in favorite_body
 
     autofill_body = function_body(CORE, "FrameAutoFill")
-    assert 'member.role ~= "HEALER"' in autofill_body
-    assert 'member.role == "DPS"' not in autofill_body
+    assert 'member.role == "DPS"' in autofill_body
+    assert 'member.role ~= "HEALER"' not in autofill_body
 
     macro_body = function_body(CORE, "MacroUpdate")
     assert 'frame.role == "TANK" and addon.db.profile.tankMacros or addon.db.profile.dpsMacros' in macro_body
@@ -757,6 +757,8 @@ def test_instance_visibility_uses_shared_policy():
 
 
 def test_mythic_visibility_and_auto_fill_options_refresh_runtime_frames():
+    assert "autoFrameFill = true" in CONFIG
+
     refresh_body = function_body(CORE, "RefreshRuntimeFrames")
     assert "ApplyInstanceVisibilityPolicy()" in refresh_body
     assert "GroupUpdate()" in refresh_body

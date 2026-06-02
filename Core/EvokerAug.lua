@@ -1719,7 +1719,7 @@ local function FrameAutoFill()
         for _, member in ipairs(partyMembers) do
             local memberInParty = false
             local unit = member.unit
-            if member.role ~= "HEALER" and unit ~= "player" then
+            if member.role == "DPS" and unit ~= "player" then
                 for _, frame in ipairs(selectedPlayerFrames) do
                     if frame.identityKey == member.identityKey then
                         memberInParty = true
