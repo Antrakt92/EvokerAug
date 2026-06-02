@@ -81,6 +81,7 @@ v1.0.24-midnight.1
     - Profile reset, copy, and switch now reapply settings through one combat-safe refresh path.
     - Frame position loading now validates saved values and saves the current position on logout.
     - Core spell dropdown labels now use localized spell names, with a corrected Source of Magic fallback.
+    - Package cleanup now keeps developer-only files and nested vendor metadata out of test/release zips.
 
 v1.0.23
     - Fixed the problem of the frame appearing only in gray due to some situations.

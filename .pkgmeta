@@ -8,6 +8,18 @@ ignore:
   - .gitignore
   - .pytest_cache
   - backups
+  - AGENTS.md
+  - AUDIT.md
+  - PLAN.md
+  - NOTES.md
+  - TODO.md
+  - CLAUDE.md
+  - "*.private.md"
+  - "*.private/"
+  - Libs/LibCustomGlow-1.0/.editorconfig
+  - Libs/LibCustomGlow-1.0/.luarc.json
+  - Libs/LibCustomGlow-1.0/.pkgmeta
+  - Libs/LibCustomGlow-1.0/cspell.json
 
 manual-changelog:
   filename: CHANGELOG.md

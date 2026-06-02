@@ -49,3 +49,12 @@ backups/
 .pytest_cache/
 __pycache__/
 *.py[cod]
+
+# Developer-only local notes and private planning files.
+AGENTS.md
+PLAN.md
+NOTES.md
+TODO.md
+*.private.md
+*.private/
+CLAUDE.md

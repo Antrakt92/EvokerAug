@@ -25,7 +25,13 @@ $ignoredDirectories = @(
 
 $ignoredFiles = @(
     ".gitignore",
-    ".pkgmeta"
+    ".pkgmeta",
+    "AGENTS.md",
+    "AUDIT.md",
+    "PLAN.md",
+    "NOTES.md",
+    "TODO.md",
+    "CLAUDE.md"
 )
 
 if (Test-Path -LiteralPath $stagingRoot) {

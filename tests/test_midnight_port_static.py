@@ -545,9 +545,15 @@ def test_packager_excludes_repo_only_files():
     assert "- .github" in PKGMETA
     assert "- .pytest_cache" in PKGMETA
     assert "- backups" in PKGMETA
+    assert "- AUDIT.md" in PKGMETA
+    assert "- Libs/LibCustomGlow-1.0/.editorconfig" in PKGMETA
+    assert "- Libs/LibCustomGlow-1.0/.luarc.json" in PKGMETA
+    assert "- Libs/LibCustomGlow-1.0/.pkgmeta" in PKGMETA
+    assert "- Libs/LibCustomGlow-1.0/cspell.json" in PKGMETA
     assert "dist/" in GITIGNORE
     assert "backups/" in GITIGNORE
     assert ".pytest_cache/" in GITIGNORE
+    assert "AUDIT.md" not in GITIGNORE
 
 
 def test_midnight_release_has_source_changelog():
@@ -579,8 +585,34 @@ def test_local_package_script_documents_expected_zip_surface():
     script = PACKAGE_SCRIPT.read_text(encoding="utf-8")
     assert "EvokerAug-v1.0.24-midnight.1.zip" in script
     assert "dist" in script
-    for ignored in [".git", ".github", "tests", "scripts", ".pytest_cache", "dist", "backups", ".gitignore", ".pkgmeta"]:
+    for ignored in [
+        ".git",
+        ".github",
+        "tests",
+        "scripts",
+        ".pytest_cache",
+        "dist",
+        "backups",
+        ".gitignore",
+        ".pkgmeta",
+        "AGENTS.md",
+        "AUDIT.md",
+        "PLAN.md",
+        "NOTES.md",
+        "TODO.md",
+        "CLAUDE.md",
+    ]:
         assert ignored in script
+
+
+def test_removed_nested_vendor_metadata_stays_out_of_repo_and_packages():
+    for path in [
+        ROOT / "Libs" / "LibCustomGlow-1.0" / ".editorconfig",
+        ROOT / "Libs" / "LibCustomGlow-1.0" / ".luarc.json",
+        ROOT / "Libs" / "LibCustomGlow-1.0" / ".pkgmeta",
+        ROOT / "Libs" / "LibCustomGlow-1.0" / "cspell.json",
+    ]:
+        assert not path.exists()
 
 
 def test_local_install_script_uses_backup_and_junction():
