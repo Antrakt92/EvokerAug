@@ -24,6 +24,13 @@ local PLAYER_FRAME_WIDTH = 150
 local pendingProtectedFrameRefresh = false
 local pendingActiveProfileApply = false
 local instanceContextGeneration = 0
+local CheckShoworHide
+local HideAllSubFrames
+local EnableAllFrame
+local GetHomePartyInfos
+local RightMenu
+local IsFavorite
+local AddItemsWithMenu
 local VALID_FRAME_POINTS = {
     TOPLEFT = true,
     TOP = true,
@@ -131,7 +138,7 @@ local function IsCoreBuffOption(spellID)
         return true
     end
 
-    return AllSpellList and AllSpellList["Augmentation"] and AllSpellList["Augmentation"][spellID] ~= nil
+    return addon.AllSpellList and addon.AllSpellList["Augmentation"] and addon.AllSpellList["Augmentation"][spellID] ~= nil
 end
 
 local function IsTrackedBuffEnabled(spellID)
@@ -411,7 +418,7 @@ local sortTypes = {
 
 -- Minimap Icon
 
-function CheckShoworHide()
+CheckShoworHide = function()
     if selectedPlayerFrameContainer and selectedPlayerFrameContainer:IsShown() then
         HideAllSubFrames()
     else
@@ -426,7 +433,7 @@ end
 
 -- Ebon Might Proggres Bar
 
-function CreateProgressBar()
+local function CreateProgressBar()
     if not CanMutateProtectedFrames() then
         MarkProtectedFrameRefreshPending()
         return
@@ -434,7 +441,7 @@ function CreateProgressBar()
 
     if addon.db.profile.ebonmightProgressBarEnable then
         if not progressBar then
-            progressBar = CreateFrame("StatusBar", "MyProgressBar", UIParent)
+            progressBar = CreateFrame("StatusBar", nil, UIParent)
             progressBar:SetSize(200, 20)
             progressBar:SetPoint("CENTER", selectedPlayerFrameContainer, "CENTER", 0, 20)
             progressBar:SetMinMaxValues(0, 100)
@@ -474,7 +481,7 @@ function CreateProgressBar()
 end
 
 ---- Player Buffs Icon -----
-function GetCharacterName(fullName)
+local function GetCharacterName(fullName)
     if fullName then
         local characterName = string.match(fullName, "([^%-]+)")
         return characterName
@@ -1238,7 +1245,12 @@ end
 
 local function GetClasses()
     local Augment = {}
-    for k, v in pairs(AllSpellList["Augmentation"]) do
+    local augmentationSpells = addon.AllSpellList and addon.AllSpellList["Augmentation"]
+    if not augmentationSpells then
+        return Augment
+    end
+
+    for k, v in pairs(augmentationSpells) do
         local spell = C_Spell.GetSpellInfo(k)
         if spell and spell.name and spell.iconID then
             Augment[k] = { icon = spell.iconID, name = spell.name }
@@ -1941,7 +1953,12 @@ end
 
 local function PopulateCharSpellDefaults()
     addon.db.profile.charSpell = addon.db.profile.charSpell or {}
-    for _, spell in ipairs(spell_list["EVOKER"]["AUGMENTATION"]) do
+    local spells = addon.SpellList and addon.SpellList["EVOKER"] and addon.SpellList["EVOKER"]["AUGMENTATION"]
+    if not spells then
+        return
+    end
+
+    for _, spell in ipairs(spells) do
         local spellInfo = C_Spell.GetSpellInfo(spell.spellID)
         local spellName = spellInfo and spellInfo.name or spell.name
         addon.db.profile.charSpell[spell.spellID] = spellName
@@ -2291,7 +2308,7 @@ local function AddHomePartyInfo(partyMembers, unit)
     end
 end
 
-function GetHomePartyInfos()
+GetHomePartyInfos = function()
     local partyMembers = {}
     if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
@@ -2319,7 +2336,7 @@ function GetHomePartyInfos()
     return partyMembers
 end
 
-function RightMenu(owner, MenuDesc)
+RightMenu = function(owner, MenuDesc)
     MenuDesc:SetTag("AUGEVOKER_RIGHT_MENU");
     local PartyList = {}
     local partyMembers = GetHomePartyInfos()
@@ -2375,7 +2392,7 @@ function addon:OpenOptions(...)
     end
 end
 
-function HideAllSubFrames()
+HideAllSubFrames = function()
     if not CanMutateProtectedFrames() then
         MarkProtectedFrameRefreshPending()
         return
@@ -2396,7 +2413,7 @@ function HideAllSubFrames()
     end
 end
 
-function EnableAllFrame()
+EnableAllFrame = function()
     if not CanMutateProtectedFrames() then
         MarkProtectedFrameRefreshPending()
         return
@@ -2420,11 +2437,11 @@ function EnableAllFrame()
     end
 end
 
-function IsFavorite(name)
+IsFavorite = function(name)
     return IsFavoriteName(name)
 end
 
-function MenuHandler(owner, rootDescription, contextData)
+local function MenuHandler(owner, rootDescription, contextData)
     if not contextData or not contextData.name then
         return
     end
@@ -2447,7 +2464,7 @@ function MenuHandler(owner, rootDescription, contextData)
     end)
 end
 
-function AddItemsWithMenu()
+AddItemsWithMenu = function()
     if not Menu or not Menu.ModifyMenu then return end
 
     local menuTags = {

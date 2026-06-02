@@ -35,21 +35,6 @@ speculative cleanup ideas without a concrete failure path.
 - Tests/verification: grep public copy for stale "current number of evokers"
   wording and verify version/known-limitations consistency.
 
-### EVA-T3-006: Reduce first-party global namespace leakage
-
-- Evidence: `Core\SpellList.lua` assigns global `spell_list` and
-  `AllSpellList`; `Core\EvokerAug.lua` exposes helpers such as
-  `CreateProgressBar`, `RightMenu`, `MenuHandler`, and uses a generic named
-  frame `MyProgressBar`.
-- Current behavior: addon internals are mutable in WoW's shared global
-  namespace and can collide with other addons or scripts.
-- Impact: unrelated addons/scripts can overwrite EvokerAug internals or be
-  overwritten by EvokerAug names.
-- Suggested fix direction: localize helpers and data tables, or attach them to
-  the addon namespace; use nil or namespaced frame names for internal frames.
-- Tests/verification: add a static check for no bare global function/table
-  assignments except intentional addon API.
-
 ### EVA-T3-008: Add behavioral tests for stateful Lua flows
 
 - Evidence: current `tests/test_midnight_port_static.py` is valuable but mostly

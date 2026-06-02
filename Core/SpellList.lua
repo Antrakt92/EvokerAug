@@ -1,4 +1,7 @@
-spell_list = {
+local addonName = ...
+local addon = LibStub("AceAddon-3.0"):GetAddon(addonName)
+
+addon.SpellList = {
     ["EVOKER"] = {
         ["AUGMENTATION"] = {
             { ["name"] = "Rescue", ["iconID"] = 4622460, ["spellID"] = 370665,  },
@@ -17,7 +20,7 @@ spell_list = {
     }
 }
 
-AllSpellList = {
+addon.AllSpellList = {
     ["Augmentation"] = {
         [363916] = "Obsidian Scales",
         [369459] = "Source of Magic",

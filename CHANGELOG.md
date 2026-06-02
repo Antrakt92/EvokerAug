@@ -35,6 +35,7 @@
 - Fixed saved frame positions so invalid values fall back safely and the current position is saved on logout.
 - Fixed core spell dropdown labels to use localized spell names, with a corrected Source of Magic fallback.
 - Cleaned package artifacts so developer-only files and nested vendor metadata stay out of test/release zips.
+- Reduced internal global namespace leakage so addon helpers and spell tables are less likely to collide with other addons.
 
 ### Added
 

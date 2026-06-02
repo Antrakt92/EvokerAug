@@ -16,9 +16,16 @@ INSTALL_SCRIPT = ROOT / "scripts" / "install-local-junction.ps1"
 
 
 def function_body(source: str, name: str) -> str:
-    match = re.search(rf"(?:local\s+)?function\s+{re.escape(name)}\b", source)
+    match = re.search(
+        rf"(?:local\s+)?function\s+{re.escape(name)}\b|^{re.escape(name)}\s*=\s*function\b",
+        source,
+        re.M,
+    )
     assert match, f"{name} is missing"
-    next_match = re.search(r"\n(?:local\s+)?function\s+\w+", source[match.end() :])
+    next_match = re.search(
+        r"\n(?:(?:local\s+)?function\s+[\w:]+|[A-Za-z_][A-Za-z0-9_]*\s*=\s*function)",
+        source[match.end() :],
+    )
     end = match.end() + next_match.start() if next_match else len(source)
     return source[match.start() : end]
 
@@ -536,6 +543,34 @@ def test_context_menu_payload_is_guarded_before_favorite_action():
     assert "if not contextData or not contextData.name then" in body
     assert 'if not string.find(name, "-") then' in body
     assert 'contextData.server ~= ""' in body
+
+
+def test_first_party_state_does_not_leak_bare_globals():
+    assert re.search(r"(?m)^spell_list\s*=", SPELL_LIST) is None
+    assert re.search(r"(?m)^AllSpellList\s*=", SPELL_LIST) is None
+    assert "addon.SpellList = {" in SPELL_LIST
+    assert "addon.AllSpellList = {" in SPELL_LIST
+
+    assert "addon.SpellList" in CORE
+    assert "addon.AllSpellList" in CORE
+    assert "MyProgressBar" not in CORE
+    assert 'CreateFrame("StatusBar", nil, UIParent)' in CORE
+
+    global_helpers = set(re.findall(r"(?m)^function\s+([A-Za-z_][A-Za-z0-9_]*)\s*\(", CORE))
+    assert global_helpers.isdisjoint(
+        {
+            "CheckShoworHide",
+            "CreateProgressBar",
+            "GetCharacterName",
+            "GetHomePartyInfos",
+            "RightMenu",
+            "HideAllSubFrames",
+            "EnableAllFrame",
+            "IsFavorite",
+            "MenuHandler",
+            "AddItemsWithMenu",
+        }
+    )
 
 
 def test_packager_excludes_repo_only_files():
