@@ -109,67 +109,16 @@ speculative cleanup ideas without a concrete failure path.
   populated immediately; copy a profile and confirm visible frame state updates;
   attempt reset in combat and confirm work is queued rather than forbidden.
 
-### EVA-T2-005: Reconcile role/class changes for existing selected frames
-
-- Evidence: `AddHomePartyInfo` reads `UnitGroupRolesAssigned`;
-  `CreateSelectedPlayerFrame` stores `frame.role`; `MacroUpdate` selects tank
-  or DPS spells from `frame.role`; `GroupUpdate` compares only membership,
-  offline state, and unit-token changes.
-- Current behavior: a member changing from `NONE`/DPS to tank, or otherwise
-  changing role/class after frame creation, keeps the old click macro set and
-  sort bucket until the frame is manually recreated.
-- Impact: tank targets can receive DPS-click spells or stay sorted incorrectly.
-- Suggested fix direction: have `GroupUpdate` compare current role/class against
-  frame state and update/recreate out of combat; consider
-  `PLAYER_ROLES_ASSIGNED` if roster updates are insufficient.
-- Tests/verification: simulate a unit changing from DPS to tank and assert
-  tank macros/sorting are applied after the update.
-
-### EVA-T2-006: Guard delayed instance auto-fill/clear callbacks against stale context
-
-- Evidence: `PLAYER_ENTERING_WORLD` schedules `C_Timer.After(4.5)` callbacks
-  for party auto-fill and non-instance clearing.
-- Current behavior: callbacks do not re-check `autoFrameFill`, instance type,
-  group size, combat state, or a generation token when they execute.
-- Impact: fast zoning, reloads, queue transitions, or setting toggles can let an
-  old callback clear fresh frames or fill frames outside the intended dungeon
-  context.
-- Suggested fix direction: maintain an instance-generation token and revalidate
-  profile setting, latest `IsInInstance()`, group size, and combat gate inside
-  the delayed callback before mutating frames.
-- Tests/verification: rapidly enter/leave a party instance and confirm only the
-  latest context affects frames.
-
-### EVA-T2-008: Fix instance visibility truth table for raid and Mythic+ toggles
-
-- Evidence: `PLAYER_ENTERING_WORLD` uses `if not showRaid ... elseif not
-  showMythic ...`.
-- Current behavior: when both toggles are disabled, entering a party/Mythic+
-  instance skips the Mythic+ hide branch because the raid-disabled branch owns
-  the `if`.
-- Impact: party frames can remain visible even when Show Mythic+ is disabled.
-- Suggested fix direction: use independent checks or a shared
-  `ShouldShowForInstanceType` helper that covers raid, party, and outdoor
-  states explicitly.
-- Tests/verification: build a truth-table test for both toggles across
-  raid/party/none; verify in-game with both toggles disabled in a party
-  instance.
-
-### EVA-T2-009: Make frame visibility controls respect one visibility policy
+### EVA-T2-009: Make the settings Hide Frame control a real visibility toggle
 
 - Evidence: `frameHide` getter returns whether the container is shown, but its
-  setter always calls `HideAllSubFrames`; minimap right-click calls
-  `CheckShoworHide`/`EnableAllFrame` even after spec or instance rules hid the
-  addon.
-- Current behavior: the Hide Frame option is an inverted one-way toggle, and
-  launcher paths can reshow frames in non-Aug specs or hidden instance types.
-- Impact: users can get confusing options UI and resurrect frames that runtime
-  policy just hid.
+  setter always calls `HideAllSubFrames`.
+- Current behavior: the Hide Frame option is an inverted one-way toggle.
+- Impact: users can get confusing options UI and cannot use the setting itself
+  to show the frame again.
 - Suggested fix direction: make the option either an execute action or a real
-  show/hide toggle using `value`; centralize visibility eligibility and have
-  minimap, compartment, frame click, spec, and instance paths respect it.
-- Tests/verification: `/aug` toggle off/on should hide/show predictably; switch
-  off Augmentation and confirm minimap right-click does not reshow frames.
+  show/hide toggle using `value`.
+- Tests/verification: `/aug` toggle off/on should hide/show predictably.
 
 ### EVA-T2-010: Apply buff icon layout settings coherently to existing frames
 
@@ -186,19 +135,6 @@ speculative cleanup ideas without a concrete failure path.
   spacing setting and call `RepositionBuffIcons` after icon-size changes.
 - Tests/verification: vary frame height/icon size with multiple buffs active
   and confirm icons remain evenly spaced.
-
-### EVA-T2-011: Guard context-menu favorite hooks by payload shape
-
-- Evidence: `AddItemsWithMenu` registers `MenuHandler` for unit, friend, and
-  community tags; `MenuHandler` immediately reads and concatenates
-  `contextData.name` and `contextData.server`.
-- Current behavior: a tag-specific or malformed context payload without a name
-  can throw a Lua error while opening the menu.
-- Impact: right-click menus can break on unsupported menu payloads.
-- Suggested fix direction: nil-guard `contextData` and `name`; derive identity
-  per supported tag, or skip the favorite action when identity is unavailable.
-- Tests/verification: add a static nil-guard test; in-game right-click target,
-  party, raid, friend, guild/community entries.
 
 ### EVA-T2-012: Wire curated changelog into release packaging
 

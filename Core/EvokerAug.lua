@@ -22,6 +22,7 @@ local EBON_MIGHT_SPELL_IDS = { 395296, 395152 }
 local PRESCIENCE_ICON_ID = 5199639
 local PLAYER_FRAME_WIDTH = 150
 local pendingProtectedFrameRefresh = false
+local instanceContextGeneration = 0
 
 local function IsCleanNumber(value)
     return type(value) == "number" and not issecretvalue(value)
@@ -41,6 +42,35 @@ local function MarkProtectedFrameRefreshPending()
     if addonNameText then
         addonNameText:SetText(addonName .. " (Waiting for combat to end)")
     end
+end
+
+local function IsCurrentInstanceContext(generation, expectedInstanceType)
+    if generation ~= instanceContextGeneration then
+        return false
+    end
+
+    local _, instanceType = IsInInstance()
+    return instanceType == expectedInstanceType
+end
+
+local function ShouldShowForInstanceType(instanceType)
+    if instanceType == "raid" and not addon.db.profile.showRaid then
+        return false
+    end
+    if instanceType == "party" and not addon.db.profile.showMythic then
+        return false
+    end
+    return true
+end
+
+local function IsRuntimeVisibilityAllowed()
+    local currentSpec = GetSpecialization()
+    if currentSpec and currentSpec ~= 3 then
+        return false
+    end
+
+    local _, instanceType = IsInInstance()
+    return ShouldShowForInstanceType(instanceType)
 end
 
 local function GetUnitClassToken(unit)
@@ -758,6 +788,19 @@ local function DeleteSelectedPlayerFrame(playerName, skipSort)
     end
 end
 
+local function ApplyInstanceVisibilityPolicy()
+    local _, instanceType = IsInInstance()
+    if ShouldShowForInstanceType(instanceType) and IsRuntimeVisibilityAllowed() then
+        return true
+    end
+
+    for playerName in pairs(checkboxStates) do
+        DeleteSelectedPlayerFrame(playerName)
+    end
+    HideAllSubFrames()
+    return false
+end
+
 local function AddFavoriteFrameForUnit(unitID)
     if not unitID or not UnitExists(unitID) then
         return
@@ -848,7 +891,11 @@ local function GroupUpdate()
         local playerName = frame.playerName
         local memberInParty = false
         local unitCheckChanged = false
+        local roleChanged = false
+        local classChanged = false
         local isOffline = false
+        local memberClass
+        local memberRole
         local unittt
         local unit
 
@@ -856,11 +903,15 @@ local function GroupUpdate()
             if member.name == playerName then
                 memberInParty = true
                 unit = member.unit
+                unittt = unit
+                memberClass = member.class
+                memberRole = member.role
+                roleChanged = frame.role ~= member.role
+                classChanged = frame.class ~= member.class
                 isOffline = not UnitIsConnected(unit)
                 if not unitCheckChanged then
                     if frame.unit ~= unit then
                         unitCheckChanged = true
-                        unittt = unit
                     end
                 end
                 break
@@ -871,11 +922,10 @@ local function GroupUpdate()
             if isOffline then
                 DeleteSelectedPlayerFrame(playerName, true)
                 needsSort = true
-            elseif unitCheckChanged then
-                local class = frame.class
-                local role = frame.role
+            elseif unitCheckChanged or roleChanged or classChanged then
                 DeleteSelectedPlayerFrame(playerName, true)
-                CreateSelectedPlayerFrame(playerName, class, role, unit, unittt)
+                CreateSelectedPlayerFrame(playerName, memberClass, memberRole, unit, unittt)
+                needsSort = true
             end
         else
             DeleteSelectedPlayerFrame(playerName, true)
@@ -1685,6 +1735,9 @@ function addon:OnEnable() -- PLAYER_LOGIN
                 addonNameText:SetText(addonName)
                 isCombatButton = false
                 pendingProtectedFrameRefresh = false
+                if not ApplyInstanceVisibilityPolicy() then
+                    return
+                end
                 GroupUpdate()
                 AddFrameFavorite()
                 if addon.db.profile.autoFrameFill then
@@ -1694,10 +1747,15 @@ function addon:OnEnable() -- PLAYER_LOGIN
                 CreateProgressBar()
             end
         elseif event == "PLAYER_ENTERING_WORLD" then
+            instanceContextGeneration = instanceContextGeneration + 1
+            local generation = instanceContextGeneration
             if addon.db.profile.autoFrameFill then
                 local _, instanceType = IsInInstance()
                 if instanceType == "party" then
                     C_Timer.After(4.5, function()
+                        if not addon.db.profile.autoFrameFill or not IsCurrentInstanceContext(generation, "party") then
+                            return
+                        end
                         local size = GetNumGroupMembers()
                         if size > 0 then
                             FrameAutoFill()
@@ -1705,29 +1763,16 @@ function addon:OnEnable() -- PLAYER_LOGIN
                     end)
                 elseif instanceType == "none" then
                     C_Timer.After(4.5, function()
-                        for i, frame in pairs(checkboxStates) do
-                            DeleteSelectedPlayerFrame(i)
+                        if not addon.db.profile.autoFrameFill or not IsCurrentInstanceContext(generation, "none") then
+                            return
+                        end
+                        for playerName in pairs(checkboxStates) do
+                            DeleteSelectedPlayerFrame(playerName)
                         end
                     end)
                 end
             end
-            if not addon.db.profile.showRaid then
-                local _, instanceType = IsInInstance()
-                if instanceType == "raid" then
-                    for i, frame in pairs(checkboxStates) do
-                        DeleteSelectedPlayerFrame(i)
-                    end
-                    HideAllSubFrames()
-                end
-            elseif not addon.db.profile.showMythic then
-                local _, instanceType = IsInInstance()
-                if instanceType == "party" then
-                    for i, frame in pairs(checkboxStates) do
-                        DeleteSelectedPlayerFrame(i)
-                    end
-                    HideAllSubFrames()
-                end
-            end
+            ApplyInstanceVisibilityPolicy()
         elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
             if unit == "player" then
                 local currentSpec = GetSpecialization()
@@ -2020,6 +2065,9 @@ function EnableAllFrame()
         MarkProtectedFrameRefreshPending()
         return
     end
+    if not IsRuntimeVisibilityAllowed() then
+        return
+    end
 
     for i, frame in pairs(selectedPlayerFrames) do
         frame:Show()
@@ -2047,11 +2095,15 @@ function IsFavorite(name)
 end
 
 function MenuHandler(owner, rootDescription, contextData)
+    if not contextData or not contextData.name then
+        return
+    end
+
     local name = contextData.name
-    if not contextData.server then
-        name = name .. "-" .. GetRealmName()
-    else
+    if contextData.server and contextData.server ~= "" then
         name = name .. "-" .. contextData.server
+    elseif not string.find(name, "-") then
+        name = name .. "-" .. GetRealmName()
     end
     rootDescription:CreateDivider();
     rootDescription:CreateTitle("EvokerAug");

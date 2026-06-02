@@ -19,6 +19,10 @@
 - Improved the Prescience Bar so party rows use a dark track with a class-coloured fill that shrinks as Prescience expires.
 - Hardened combat aura updates by reconciling full `UNIT_AURA` refreshes and rejecting malformed timer payloads.
 - Moved range dimming off secure unit-button alpha changes so combat tracking only updates child visuals.
+- Guarded delayed instance auto-fill/clear callbacks so stale zone transitions cannot mutate fresh frames.
+- Fixed raid/Mythic+ visibility checks so disabled instance types stay hidden even when multiple toggles are off.
+- Refreshed selected frames when party role/class data changes, keeping click spells and sorting aligned with current roster state.
+- Guarded Blizzard context-menu favorite hooks when a menu payload has no player name.
 
 ### Added
 

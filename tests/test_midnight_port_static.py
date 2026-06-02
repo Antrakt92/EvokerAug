@@ -112,6 +112,16 @@ def test_group_update_removes_frames_without_forward_ipairs_mutation():
     assert "for _, frame in ipairs(selectedPlayerFrames)" not in body
 
 
+def test_group_update_refreshes_role_class_and_unit_changes():
+    body = function_body(CORE, "GroupUpdate")
+    assert "roleChanged" in body
+    assert "classChanged" in body
+    assert "frame.role ~= member.role" in body
+    assert "frame.class ~= member.class" in body
+    assert "unitCheckChanged or roleChanged or classChanged" in body
+    assert "CreateSelectedPlayerFrame(playerName, memberClass, memberRole, unit, unittt)" in body
+
+
 def test_deleted_and_reconfigured_frames_clear_buff_tickers():
     assert "ClearBuffIcons" in CORE
 
@@ -255,6 +265,45 @@ def test_addon_compartment_and_context_menu_hooks_are_guarded():
     assert "if AddonCompartmentFrame and AddonCompartmentFrame.RegisterAddon then" in CORE
     assert "MENU_LFG_FRAME_SEARCH_ENTRY" not in CORE
     assert "MENU_LFG_FRAME_MEMBER_APPLY" not in CORE
+
+
+def test_instance_transitions_revalidate_latest_context():
+    assert "local instanceContextGeneration = 0" in CORE
+    assert "IsCurrentInstanceContext" in CORE
+
+    handler_body = CORE[CORE.index('elseif event == "PLAYER_ENTERING_WORLD"') :]
+    handler_body = handler_body[: handler_body.index('elseif event == "PLAYER_SPECIALIZATION_CHANGED"')]
+    assert "instanceContextGeneration = instanceContextGeneration + 1" in handler_body
+    assert "local generation = instanceContextGeneration" in handler_body
+    assert 'IsCurrentInstanceContext(generation, "party")' in handler_body
+    assert 'IsCurrentInstanceContext(generation, "none")' in handler_body
+    assert "addon.db.profile.autoFrameFill" in handler_body
+
+
+def test_instance_visibility_uses_shared_policy():
+    assert "ShouldShowForInstanceType" in CORE
+    assert "IsRuntimeVisibilityAllowed" in CORE
+    assert "ApplyInstanceVisibilityPolicy" in CORE
+    assert "elseif not addon.db.profile.showMythic" not in CORE
+
+    visibility_body = function_body(CORE, "ApplyInstanceVisibilityPolicy")
+    assert "ShouldShowForInstanceType(instanceType)" in visibility_body
+    assert "IsRuntimeVisibilityAllowed()" in visibility_body
+    assert "HideAllSubFrames()" in visibility_body
+
+    enable_body = function_body(CORE, "EnableAllFrame")
+    assert "IsRuntimeVisibilityAllowed()" in enable_body
+
+    regen_body = CORE[CORE.index('elseif event == "PLAYER_REGEN_ENABLED"') :]
+    regen_body = regen_body[: regen_body.index('elseif event == "PLAYER_ENTERING_WORLD"')]
+    assert "if not ApplyInstanceVisibilityPolicy() then" in regen_body
+
+
+def test_context_menu_payload_is_guarded_before_favorite_action():
+    body = function_body(CORE, "MenuHandler")
+    assert "if not contextData or not contextData.name then" in body
+    assert 'if not string.find(name, "-") then' in body
+    assert 'contextData.server ~= ""' in body
 
 
 def test_packager_excludes_repo_only_files():
