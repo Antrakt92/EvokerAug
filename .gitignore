@@ -41,6 +41,9 @@ luac.out
 
 /.vscode
 
+# Local package output
+dist/
+
 # Python test cache
 .pytest_cache/
 __pycache__/

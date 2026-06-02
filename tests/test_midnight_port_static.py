@@ -8,6 +8,8 @@ CONFIG = (ROOT / "Core" / "Config.lua").read_text(encoding="utf-8")
 TOC = (ROOT / "EvokerAug.toc").read_text(encoding="utf-8")
 PKGMETA = (ROOT / ".pkgmeta").read_text(encoding="utf-8")
 GITIGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
+CHANGELOG = ROOT / "CHANGELOG.md"
+PACKAGE_SCRIPT = ROOT / "scripts" / "package-local.ps1"
 
 
 def function_body(source: str, name: str) -> str:
@@ -64,6 +66,24 @@ def test_addon_compartment_and_context_menu_hooks_are_guarded():
 def test_packager_excludes_repo_only_files():
     assert "ignore:" in PKGMETA
     assert "- tests" in PKGMETA
+    assert "- scripts" in PKGMETA
     assert "- .github" in PKGMETA
     assert "- .pytest_cache" in PKGMETA
+    assert "dist/" in GITIGNORE
     assert ".pytest_cache/" in GITIGNORE
+
+
+def test_midnight_release_has_source_changelog():
+    assert CHANGELOG.exists()
+    changelog = CHANGELOG.read_text(encoding="utf-8")
+    assert "## v1.0.24-midnight.1" in changelog
+    assert "Midnight" in changelog
+
+
+def test_local_package_script_documents_expected_zip_surface():
+    assert PACKAGE_SCRIPT.exists()
+    script = PACKAGE_SCRIPT.read_text(encoding="utf-8")
+    assert "EvokerAug-v1.0.24-midnight.1.zip" in script
+    assert "dist" in script
+    for ignored in [".git", ".github", "tests", "scripts", ".pytest_cache", "dist", ".gitignore", ".pkgmeta"]:
+        assert ignored in script
