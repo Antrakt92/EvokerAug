@@ -204,6 +204,35 @@ def test_group_update_refreshes_role_class_and_unit_changes():
     assert "CreateSelectedPlayerFrame(memberName, memberClass, memberRole, unit, unittt, identityKey)" in body
 
 
+def test_disconnected_units_are_filtered_across_refresh_paths():
+    assert "IsEligibleGroupUnit" in CORE
+
+    helper_body = function_body(CORE, "IsEligibleGroupUnit")
+    assert "UnitExists(unit)" in helper_body
+    assert "UnitIsConnected(unit)" in helper_body
+
+    add_home_body = function_body(CORE, "AddHomePartyInfo")
+    assert "if not IsEligibleGroupUnit(unit) then" in add_home_body
+    assert "UnitExists(unit)" not in add_home_body
+    assert "UnitIsConnected(unit)" not in add_home_body
+
+    favorite_body = function_body(CORE, "AddFavoriteFrameForUnit")
+    assert "if not IsEligibleGroupUnit(unitID) then" in favorite_body
+    assert "UnitExists(unitID)" not in favorite_body
+    assert "UnitIsConnected(unitID)" not in favorite_body
+
+    group_body = function_body(CORE, "GroupUpdate")
+    assert "local partyMembers = GetHomePartyInfos()" in group_body
+    assert "UnitIsConnected" not in group_body
+
+    on_enable_body = function_body(CORE, "addon:OnEnable")
+    assert 'selectedPlayerFrameContainer:RegisterEvent("UNIT_CONNECTION")' in on_enable_body
+
+    connection_body = CORE[CORE.index('elseif event == "UNIT_CONNECTION"') :]
+    connection_body = connection_body[: connection_body.index('elseif event == "PLAYER_ENTERING_WORLD"')]
+    assert "RefreshRuntimeFrames()" in connection_body
+
+
 def test_deleted_and_reconfigured_frames_clear_buff_tickers():
     assert "ClearBuffIcons" in CORE
 

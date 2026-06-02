@@ -614,6 +614,14 @@ local function GetUnitIdentity(unit)
     return BuildIdentityKey(name, realm)
 end
 
+local function IsEligibleGroupUnit(unit)
+    if not unit or not UnitExists(unit) then
+        return false
+    end
+
+    return UnitIsConnected(unit)
+end
+
 local function SanitizePosition(position)
     position = type(position) == "table" and position or {}
     local point = position.point
@@ -1226,7 +1234,7 @@ local function ApplyInstanceVisibilityPolicy()
 end
 
 local function AddFavoriteFrameForUnit(unitID)
-    if not unitID or not UnitExists(unitID) then
+    if not IsEligibleGroupUnit(unitID) then
         return
     end
 
@@ -1311,7 +1319,6 @@ local function GroupUpdate()
         local unitCheckChanged = false
         local roleChanged = false
         local classChanged = false
-        local isOffline = false
         local memberName
         local memberClass
         local memberRole
@@ -1328,7 +1335,6 @@ local function GroupUpdate()
                 memberRole = member.role
                 roleChanged = frame.role ~= member.role
                 classChanged = frame.class ~= member.class
-                isOffline = not UnitIsConnected(unit)
                 if not unitCheckChanged then
                     if frame.unit ~= unit then
                         unitCheckChanged = true
@@ -1339,10 +1345,7 @@ local function GroupUpdate()
         end
 
         if memberInParty then
-            if isOffline then
-                DeleteSelectedPlayerFrame(identityKey, true)
-                needsSort = true
-            elseif unitCheckChanged or roleChanged or classChanged then
+            if unitCheckChanged or roleChanged or classChanged then
                 DeleteSelectedPlayerFrame(identityKey, true)
                 CreateSelectedPlayerFrame(memberName, memberClass, memberRole, unit, unittt, identityKey)
                 needsSort = true
@@ -2225,6 +2228,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_REGEN_ENABLED")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_REGEN_DISABLED")
     selectedPlayerFrameContainer:RegisterEvent("UNIT_AURA")
+    selectedPlayerFrameContainer:RegisterEvent("UNIT_CONNECTION")
     selectedPlayerFrameContainer:RegisterEvent("UNIT_FLAGS")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_LOGOUT")
@@ -2260,6 +2264,8 @@ function addon:OnEnable() -- PLAYER_LOGIN
 
     selectedPlayerFrameContainer:SetScript("OnEvent", function(self, event, unit, info)
         if event == "GROUP_ROSTER_UPDATE" then
+            RefreshRuntimeFrames()
+        elseif event == "UNIT_CONNECTION" then
             RefreshRuntimeFrames()
         elseif event == "PLAYER_REGEN_DISABLED" then
             combatLockdown = true
@@ -2422,7 +2428,7 @@ function addon:Reconfigure()
 end
 
 local function AddHomePartyInfo(partyMembers, unit)
-    if not unit or not UnitExists(unit) then
+    if not IsEligibleGroupUnit(unit) then
         return
     end
 
