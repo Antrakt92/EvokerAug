@@ -10,6 +10,11 @@
 - Deferred protected party frame creation, deletion, sorting, visibility, and spell attribute updates while in combat.
 - Fixed class-token handling for non-English clients.
 - Removed LFG context-menu hooks from the local Midnight port to reduce taint risk.
+- Fixed modified click casting by pairing secure spell attributes with secure type attributes.
+- Fixed party, favorite, and right-click menu unit mapping so party members keep their real `partyN`, `raidN`, or `player` unit tokens.
+- Fixed frame reset/deletion cleanup so buff timers and icon regions are cleared instead of surviving detached frames.
+- Fixed custom spell option icons, class-colour fallback, OmniCD reload handling, and combat-gated frame-height/progress-bar settings.
+- Fixed local package output so backup folders are excluded from manual test zips.
 
 ### Added
 

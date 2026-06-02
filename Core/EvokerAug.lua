@@ -195,6 +195,11 @@ end
 -- Ebon Might Proggres Bar
 
 function CreateProgressBar()
+    if not CanMutateProtectedFrames() then
+        MarkProtectedFrameRefreshPending()
+        return
+    end
+
     if addon.db.profile.ebonmightProgressBarEnable then
         if not progressBar then
             progressBar = CreateFrame("StatusBar", "MyProgressBar", UIParent)
@@ -246,6 +251,27 @@ function GetCharacterName(fullName)
     end
 end
 
+local function GetClassRGB(class)
+    local classColor = class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
+    if classColor then
+        if classColor.GetRGB then
+            return classColor:GetRGB()
+        end
+        if classColor.r and classColor.g and classColor.b then
+            return classColor.r, classColor.g, classColor.b
+        end
+    end
+
+    if type(GetClassColor) == "function" and class then
+        local r, g, b = GetClassColor(class)
+        if r and g and b then
+            return r, g, b
+        end
+    end
+
+    return 0.24, 0.24, 0.24
+end
+
 local function RepositionBuffIcons(playerFrame)
     playerFrame["buff"].xOffset = 0
     for k, icon in pairs(playerFrame["buff"]) do
@@ -256,28 +282,71 @@ local function RepositionBuffIcons(playerFrame)
     end
 end
 
-local function RemoveBuffIcon(playerFrame, buffID)
-    if playerFrame and buffID then
-        if playerFrame["buff"][buffID] then
-            if playerFrame["buff"][buffID].iconid == 5199639 and addon.db.profile.prescienceBuffSoundName ~= "None" then
-                PlaySoundFile(addon.db.profile.prescienceBuffSoundFile, "Master")
-            end
-            if playerFrame["buff"][buffID].glow then
-                LibCustomGlow.PixelGlow_Stop(playerFrame)
-            end
-            playerFrame["buff"][buffID .. "Text"].ticker:Cancel()
-            playerFrame["buff"][buffID .. "Text"]:Hide()
-            playerFrame["buff"][buffID .. "Text"]:ClearAllPoints()
-            playerFrame["buff"][buffID .. "Text"] = nil
+local function ClearBuffIcons(playerFrame)
+    local buff = playerFrame and playerFrame["buff"]
+    if not buff then
+        return
+    end
 
-            playerFrame["buff"][buffID]:Hide()
-            playerFrame["buff"][buffID]:ClearAllPoints()
-            playerFrame["buff"][buffID]:SetParent(nil)
-            playerFrame["buff"][buffID] = nil
-
-            RepositionBuffIcons(playerFrame)
+    local keys = {}
+    for key in pairs(buff) do
+        if key ~= "xOffset" then
+            table.insert(keys, key)
         end
     end
+
+    for _, key in ipairs(keys) do
+        local region = buff[key]
+        if type(region) == "table" then
+            if string.match(tostring(key), "Text$") and region.ticker then
+                region.ticker:Cancel()
+            end
+            if region.Hide then
+                region:Hide()
+            end
+            if region.ClearAllPoints then
+                region:ClearAllPoints()
+            end
+            if region.SetParent then
+                region:SetParent(nil)
+            end
+        end
+        buff[key] = nil
+    end
+
+    buff.xOffset = 0
+end
+
+local function RemoveBuffIcon(playerFrame, buffID)
+    local buff = playerFrame and playerFrame["buff"]
+    local iconFrame = buff and buff[buffID]
+    if not iconFrame then
+        return
+    end
+
+    if iconFrame.iconid == 5199639 and addon.db.profile.prescienceBuffSoundName ~= "None" then
+        PlaySoundFile(addon.db.profile.prescienceBuffSoundFile, "Master")
+    end
+    if iconFrame.glow then
+        LibCustomGlow.PixelGlow_Stop(playerFrame)
+    end
+
+    local text = buff[buffID .. "Text"]
+    if text then
+        if text.ticker then
+            text.ticker:Cancel()
+        end
+        text:Hide()
+        text:ClearAllPoints()
+        buff[buffID .. "Text"] = nil
+    end
+
+    iconFrame:Hide()
+    iconFrame:ClearAllPoints()
+    iconFrame:SetParent(nil)
+    buff[buffID] = nil
+
+    RepositionBuffIcons(playerFrame)
 end
 
 local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTimer, spellID)
@@ -308,13 +377,15 @@ local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTi
     playerFrame["buff"][auraInstanceID .. "Text"].timestamp = timestamp
     playerFrame["buff"][auraInstanceID .. "Text"].starttimestamp = startTimer
     playerFrame["buff"][auraInstanceID .. "Text"].ticker = C_Timer.NewTicker(1, function()
-        if playerFrame["buff"] == nil then
+        local buff = playerFrame["buff"]
+        local text = buff and buff[auraInstanceID .. "Text"]
+        if text == nil then
             return
         end
-        local expirationTime = playerFrame["buff"][auraInstanceID .. "Text"].timestamp
-        local startDuration = playerFrame["buff"][auraInstanceID .. "Text"].starttimestamp
+        local expirationTime = text.timestamp
+        local startDuration = text.starttimestamp
         if not IsCleanPositiveNumber(expirationTime) or not IsCleanPositiveNumber(startDuration) then
-            playerFrame["buff"][auraInstanceID .. "Text"]:SetText(nil)
+            text:SetText(nil)
             return
         end
 
@@ -328,18 +399,20 @@ local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTi
             end
         end
         if duration > 10 then
-            playerFrame["buff"][auraInstanceID .. "Text"]:SetTextColor(1, 1, 1)
+            text:SetTextColor(1, 1, 1)
         else
-            playerFrame["buff"][auraInstanceID .. "Text"]:SetTextColor(1, 0, 0)
+            text:SetTextColor(1, 0, 0)
         end
         if duration <= 0 then
-            playerFrame["buff"][auraInstanceID .. "Text"]:Hide()
-            playerFrame["buff"][auraInstanceID .. "Text"].ticker:Cancel()
+            text:Hide()
+            if text.ticker then
+                text.ticker:Cancel()
+            end
             RemoveBuffIcon(playerFrame, auraInstanceID)
         elseif duration <= 20 then
-            playerFrame["buff"][auraInstanceID .. "Text"]:SetText(math.floor(duration))
+            text:SetText(math.floor(duration))
         else
-            playerFrame["buff"][auraInstanceID .. "Text"]:SetText(nil)
+            text:SetText(nil)
         end
     end)
     playerFrame["buff"].xOffset = playerFrame["buff"].xOffset + addon.db.profile.buttonHeight
@@ -388,59 +461,51 @@ local function UpdateDistance()
 end
 
 local function MacroUpdate(frame)
-    if frame.role == "TANK" then
-        frame:SetAttribute("spell", addon.db.profile.charSpell[addon.db.profile.tankMacros.LeftSpell]);
-        if addon.db.profile.macro.AltClick then
-            frame:SetAttribute("alt-spell1", addon.db.profile.charSpell[addon.db.profile.tankMacros.AltSpell]);
-        else
-            frame:SetAttribute("alt-spell1", nil)
-        end
-        if addon.db.profile.macro.ShiftClick then
-            frame:SetAttribute("shift-spell1", addon.db.profile.charSpell[addon.db.profile.tankMacros.ShiftSpell]);
-        else
-            frame:SetAttribute("shift-spell1", nil)
-        end
-        if addon.db.profile.macro.CtrlClick then
-            frame:SetAttribute("ctrl-spell1", addon.db.profile.charSpell[addon.db.profile.tankMacros.CtrlSpell]);
-        else
-            frame:SetAttribute("ctrl-spell1", nil)
-        end
-        if addon.db.profile.macro.RightClick then
-            frame:SetAttribute("spell2", addon.db.profile.charSpell[addon.db.profile.tankMacros.RightSpell]);
-        else
-            frame:SetAttribute("spell2", "")
-            frame:SetAttribute("ctrl-spell2", "");
-            frame:SetAttribute("alt-spell2", "");
-            frame:SetAttribute("shift-spell2", "");
-        end
+    local macroProfile = frame.role == "TANK" and addon.db.profile.tankMacros or addon.db.profile.dpsMacros
+    local spellProfile = addon.db.profile.charSpell
+    local leftSpell = spellProfile[macroProfile.LeftSpell]
+
+    frame:SetAttribute("type", "spell")
+    frame:SetAttribute("type1", "spell")
+    frame:SetAttribute("spell", leftSpell)
+    frame:SetAttribute("spell1", leftSpell)
+
+    if addon.db.profile.macro.AltClick then
+        frame:SetAttribute("alt-type1", "spell")
+        frame:SetAttribute("alt-spell1", spellProfile[macroProfile.AltSpell])
     else
-        frame:SetAttribute("spell", addon.db.profile.charSpell[addon.db.profile.dpsMacros.LeftSpell])
-        if addon.db.profile.macro.AltClick then
-            frame:SetAttribute("alt-spell1", addon.db.profile.charSpell[addon.db.profile.dpsMacros.AltSpell])
-        else
-            frame:SetAttribute("alt-spell1", nil)
-        end
-        if addon.db.profile.macro.ShiftClick then
-            frame:SetAttribute("shift-spell1", addon.db.profile.charSpell[addon.db.profile.dpsMacros.ShiftSpell])
-        else
-            frame:SetAttribute("shift-spell1", nil)
-        end
-        if addon.db.profile.macro.CtrlClick then
-            frame:SetAttribute("ctrl-spell1", addon.db.profile.charSpell[addon.db.profile.dpsMacros.CtrlSpell])
-        else
-            frame:SetAttribute("ctrl-spell1", nil)
-        end
-        if addon.db.profile.macro.RightClick then
-            frame:SetAttribute("spell2", addon.db.profile.charSpell[addon.db.profile.dpsMacros.RightSpell]);
-            frame:SetAttribute("ctrl-spell2", "");
-            frame:SetAttribute("alt-spell2", "");
-            frame:SetAttribute("shift-spell2", "");
-        else
-            frame:SetAttribute("spell2", "")
-            frame:SetAttribute("ctrl-spell2", "");
-            frame:SetAttribute("alt-spell2", "");
-            frame:SetAttribute("shift-spell2", "");
-        end
+        frame:SetAttribute("alt-type1", nil)
+        frame:SetAttribute("alt-spell1", nil)
+    end
+
+    if addon.db.profile.macro.ShiftClick then
+        frame:SetAttribute("shift-type1", "spell")
+        frame:SetAttribute("shift-spell1", spellProfile[macroProfile.ShiftSpell])
+    else
+        frame:SetAttribute("shift-type1", nil)
+        frame:SetAttribute("shift-spell1", nil)
+    end
+
+    if addon.db.profile.macro.CtrlClick then
+        frame:SetAttribute("ctrl-type1", "spell")
+        frame:SetAttribute("ctrl-spell1", spellProfile[macroProfile.CtrlSpell])
+    else
+        frame:SetAttribute("ctrl-type1", nil)
+        frame:SetAttribute("ctrl-spell1", nil)
+    end
+
+    frame:SetAttribute("ctrl-type2", nil)
+    frame:SetAttribute("ctrl-spell2", nil)
+    frame:SetAttribute("alt-type2", nil)
+    frame:SetAttribute("alt-spell2", nil)
+    frame:SetAttribute("shift-type2", nil)
+    frame:SetAttribute("shift-spell2", nil)
+
+    frame:SetAttribute("type2", "spell")
+    if addon.db.profile.macro.RightClick then
+        frame:SetAttribute("spell2", spellProfile[macroProfile.RightSpell])
+    else
+        frame:SetAttribute("spell2", "")
     end
 end
 
@@ -478,6 +543,18 @@ local function SortType()
     end
 end
 
+local function ApplyButtonHeight()
+    if not CanMutateProtectedFrames() then
+        MarkProtectedFrameRefreshPending()
+        return
+    end
+
+    for _, frame in ipairs(selectedPlayerFrames) do
+        frame:SetSize(150, addon.db.profile.buttonHeight)
+    end
+    SortType()
+end
+
 local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitIndex, unittt)
     if not CanMutateProtectedFrames() then
         MarkProtectedFrameRefreshPending()
@@ -486,7 +563,8 @@ local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitInde
     local frameIndex = #selectedPlayerFrames + 1
     checkboxStates[playerName] = true
     selectedPlayerFrames[frameIndex] = CreateFrame("Button", "EvokerAugPartyFrame" .. unittt, UIParent,
-        BackdropTemplateMixin and "BackdropTemplate,SecureUnitButtonTemplate" or "SecureUnitButtonTemplate")
+        BackdropTemplateMixin and "BackdropTemplate,SecureActionButtonTemplate,SecureUnitButtonTemplate" or
+        "SecureActionButtonTemplate,SecureUnitButtonTemplate")
     selectedPlayerFrames[frameIndex]:SetSize(150, addon.db.profile.buttonHeight)
     selectedPlayerFrames[frameIndex]["buff"] = {}
     selectedPlayerFrames[frameIndex]["buff"].xOffset = 0
@@ -511,7 +589,7 @@ local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitInde
         bgFile = [=[Interface\Tooltips\UI-Tooltip-Background]=],
         insets = { top = -1, left = -1, bottom = -1, right = -1 }
     })
-    local classR, classG, classB = GetClassColor(class)
+    local classR, classG, classB = GetClassRGB(class)
     selectedPlayerFrames[frameIndex]:SetBackdropColor(classR, classG, classB, 0.9)
     selectedPlayerFrames[frameIndex].texture:SetVertexColor(classR, classG, classB, 0.9)
     CheckDistance(selectedPlayerFrames[frameIndex])
@@ -568,7 +646,7 @@ local function IsPlayerFrameByName(name)
     return false
 end
 
-local function DeleteSelectedPlayerFrame(playerName)
+local function DeleteSelectedPlayerFrame(playerName, skipSort)
     if not CanMutateProtectedFrames() then
         MarkProtectedFrameRefreshPending()
         return
@@ -576,12 +654,15 @@ local function DeleteSelectedPlayerFrame(playerName)
 
     local playerIndex = GetPlayerFrameIndexByName(playerName)
     if playerIndex and selectedPlayerFrames[playerIndex] then
+        ClearBuffIcons(selectedPlayerFrames[playerIndex])
         selectedPlayerFrames[playerIndex]:Hide()
         selectedPlayerFrames[playerIndex]:ClearAllPoints()
         selectedPlayerFrames[playerIndex]:SetParent(nil)
         table.remove(selectedPlayerFrames, playerIndex)
         checkboxStates[playerName] = false
-        SortType()
+        if not skipSort then
+            SortType()
+        end
     end
 
     if #selectedPlayerFrames == 0 then
@@ -592,6 +673,38 @@ local function DeleteSelectedPlayerFrame(playerName)
     end
 end
 
+local function AddFavoriteFrameForUnit(unitID)
+    if not unitID or not UnitExists(unitID) then
+        return
+    end
+
+    local fullName, realm = UnitName(unitID)
+    local class = GetUnitClassToken(unitID)
+    if not fullName or not class then
+        return
+    end
+
+    if not realm or realm == "" then
+        realm = GetRealmName()
+        fullName = fullName .. "-" .. realm
+    end
+
+    if not IsFavorite(fullName) then
+        return
+    end
+
+    local combatRole = UnitGroupRolesAssigned(unitID)
+    local name = GetCharacterName(fullName)
+    if combatRole == "DAMAGER" then
+        combatRole = "DPS"
+    end
+
+    if name and combatRole and not IsPlayerFrameByName(name) then
+        class = strupper(string.gsub(class, "%s+", ""))
+        CreateSelectedPlayerFrame(name, class, combatRole, unitID, unitID)
+    end
+end
+
 local function AddFrameFavorite()
     if not CanMutateProtectedFrames() then
         MarkProtectedFrameRefreshPending()
@@ -599,32 +712,14 @@ local function AddFrameFavorite()
     end
 
     --- Favorite Check
-    local in_group = IsInGroup() or IsInRaid()
-    if in_group then
+    if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
-            local unitID = (IsInRaid() and "raid" .. i) or (IsInGroup() and "party" .. i) or "player"
-            local fullName, realm = UnitName(unitID)
-            if fullName then
-                local class = GetUnitClassToken(unitID)
-                if not realm then
-                    realm = GetRealmName()
-                    fullName = fullName .. "-" .. realm
-                end
-                if fullName and class then
-                    local isFav = IsFavorite(fullName)
-                    if isFav then
-                        local combatRole = UnitGroupRolesAssigned(unitID)
-                        local name = GetCharacterName(fullName)
-                        if combatRole == "DAMAGER" then
-                            combatRole = "DPS"
-                        end
-                        if name and class and combatRole and not IsPlayerFrameByName(name) then
-                            class = strupper(string.gsub(class, "%s+", ""))
-                            CreateSelectedPlayerFrame(name, class, combatRole, unitID, unitID)
-                        end
-                    end
-                end
-            end
+            AddFavoriteFrameForUnit("raid" .. i)
+        end
+    elseif IsInGroup() then
+        AddFavoriteFrameForUnit("player")
+        for i = 1, GetNumSubgroupMembers() do
+            AddFavoriteFrameForUnit("party" .. i)
         end
     end
 end
@@ -636,14 +731,9 @@ local function FrameAutoFill()
     end
     local partyMembers = GetHomePartyInfos()
     if not IsInRaid() then
-        for i, member in ipairs(partyMembers) do
+        for _, member in ipairs(partyMembers) do
             local memberInParty = false
-            local unit
-            if member.name == UnitName("player") then
-                unit = "player"
-            else
-                unit = (IsInGroup() and "party" .. i) or "player"
-            end
+            local unit = member.unit
             if member.role ~= "HEALER" and unit ~= "player" then
                 for _, frame in ipairs(selectedPlayerFrames) do
                     if frame.playerName == member.name then
@@ -666,45 +756,50 @@ local function GroupUpdate()
     end
 
     local partyMembers = GetHomePartyInfos()
+    local needsSort = false
 
-    for _, frame in ipairs(selectedPlayerFrames) do
+    for i = #selectedPlayerFrames, 1, -1 do
+        local frame = selectedPlayerFrames[i]
         local playerName = frame.playerName
         local memberInParty = false
         local unitCheckChanged = false
+        local isOffline = false
         local unittt
         local unit
 
-        for i, member in ipairs(partyMembers) do
+        for _, member in ipairs(partyMembers) do
             if member.name == playerName then
                 memberInParty = true
-                if playerName == UnitName("player") then
-                    unit = "player"
-                else
-                    unit = (IsInRaid() and "raid" .. i) or (IsInGroup() and "party" .. i) or "player"
-                end
-                local isOffline = not UnitIsConnected(unit)
+                unit = member.unit
+                isOffline = not UnitIsConnected(unit)
                 if not unitCheckChanged then
                     if frame.unit ~= unit then
                         unitCheckChanged = true
                         unittt = unit
                     end
                 end
-                if isOffline then
-                    DeleteSelectedPlayerFrame(playerName)
-                    break
-                end
                 break
             end
         end
 
         if memberInParty then
-            if unitCheckChanged then
-                DeleteSelectedPlayerFrame(playerName)
-                CreateSelectedPlayerFrame(playerName, frame.class, frame.role, unit, unittt)
+            if isOffline then
+                DeleteSelectedPlayerFrame(playerName, true)
+                needsSort = true
+            elseif unitCheckChanged then
+                local class = frame.class
+                local role = frame.role
+                DeleteSelectedPlayerFrame(playerName, true)
+                CreateSelectedPlayerFrame(playerName, class, role, unit, unittt)
             end
         else
-            DeleteSelectedPlayerFrame(playerName)
+            DeleteSelectedPlayerFrame(playerName, true)
+            needsSort = true
         end
+    end
+
+    if needsSort then
+        SortType()
     end
 end
 
@@ -712,7 +807,9 @@ local function GetClasses()
     local Augment = {}
     for k, v in pairs(AllSpellList["Augmentation"]) do
         local spell = C_Spell.GetSpellInfo(k)
-        Augment[k] = { icon = spell.iconID, name = spell.name }
+        if spell and spell.name and spell.iconID then
+            Augment[k] = { icon = spell.iconID, name = spell.name }
+        end
     end
 
     return Augment
@@ -725,9 +822,9 @@ local function SpellListAdd(spellId)
             EvokerAugOptions.args.customSpells.args.buffList.args[Spell.name .. "" .. spellId] = {
                 order = spellId,
                 type = 'toggle',
-                name = Spell.iconID,
+                name = Spell.name,
                 imageCoords = { 0.07, 0.93, 0.07, 0.93 },
-                image = icon,
+                image = Spell.iconID,
                 arg = spellId,
                 set = function(_, value)
                     if value then
@@ -884,22 +981,8 @@ local function GetOptions()
                         step = 1,
                         get = function() return addon.db.profile.buttonHeight end,
                         set = function(info, value)
-                            local tank = 0
                             addon.db.profile.buttonHeight = value
-                            for i, frame in ipairs(selectedPlayerFrames) do
-                                frame:SetSize(150, addon.db.profile.buttonHeight)
-                            end
-                            for i, frame in ipairs(selectedPlayerFrames) do
-                                if frame.role == "TANK" then
-                                    tank = tank + 1
-                                    frame:SetPoint("TOP", selectedPlayerFrameContainer, "TOP", 0,
-                                        tank * addon.db.profile.buttonHeight)
-                                else
-                                    local dpsCheck = i - tank
-                                    frame:SetPoint("BOTTOM", selectedPlayerFrameContainer, "BOTTOM", 0,
-                                        dpsCheck * -addon.db.profile.buttonHeight)
-                                end
-                            end
+                            ApplyButtonHeight()
                         end,
                         order = 14,
                     },
@@ -1362,7 +1445,7 @@ local function GetOptions()
                                 C_AddOns.GetAddOnEnableState("OmniCD", UnitGUID("player"))
                             if loaded or state == 2 then
                                 addon.db.profile.omniCDSupport = value
-                                C_UI.Reload()
+                                ReloadUI()
                             end
                         end,
                     }
@@ -1519,6 +1602,8 @@ function addon:OnEnable() -- PLAYER_LOGIN
                 if addon.db.profile.autoFrameFill then
                     FrameAutoFill()
                 end
+                ApplyButtonHeight()
+                CreateProgressBar()
             end
         elseif event == "PLAYER_ENTERING_WORLD" then
             if addon.db.profile.autoFrameFill then
@@ -1614,7 +1699,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
                     if selectedPlayerFrames[frameIndex] then
                         local frame = selectedPlayerFrames[frameIndex]
                         local clasxs = frame.class
-                        local classR, classG, classB = GetClassColor(clasxs)
+                        local classR, classG, classB = GetClassRGB(clasxs)
                         frame:SetBackdropColor(classR, classG, classB, 0.9)
                         frame.texture:SetVertexColor(classR, classG, classB, 0.9)
                         frame.playerNameText:SetText(frame.playerName)
@@ -1691,45 +1776,58 @@ function addon:Reconfigure()
         self.db.profile.charSpell[spell.spellID] = spell.name
     end
 
-    for i, frame in ipairs(selectedPlayerFrames) do
-        if not string.match(i, "buff$") then
-            local playerIndex = i
-            selectedPlayerFrames[playerIndex]:Hide()
-            selectedPlayerFrames[playerIndex]:ClearAllPoints()
-            selectedPlayerFrames[playerIndex]:SetParent(nil)
-            table.remove(selectedPlayerFrames, playerIndex)
-            break
-        end
+    for i = #selectedPlayerFrames, 1, -1 do
+        local frame = selectedPlayerFrames[i]
+        ClearBuffIcons(frame)
+        frame:Hide()
+        frame:ClearAllPoints()
+        frame:SetParent(nil)
+        selectedPlayerFrames[i] = nil
     end
     checkboxStates = {}
     selectedPlayerFrames = {}
+    if distanceTimer then
+        distanceTimer:Cancel()
+        distanceTimer = nil
+    end
     selectedPlayerFrameContainer:ClearAllPoints()
     selectedPlayerFrameContainer:SetPoint(self.db.profile.positions.point, self.db.profile.positions.xOffset,
         self.db.profile.positions.yOffset)
 end
 
+local function AddHomePartyInfo(partyMembers, unit)
+    if not unit or not UnitExists(unit) then
+        return
+    end
+
+    local fullName = UnitName(unit)
+    local class = GetUnitClassToken(unit)
+    if not fullName or not class then
+        return
+    end
+
+    local combatRole = UnitGroupRolesAssigned(unit)
+    local name = GetCharacterName(fullName)
+    if combatRole == "DAMAGER" then
+        combatRole = "DPS"
+    end
+
+    if name and combatRole then
+        table.insert(partyMembers,
+            { name = name, class = strupper(string.gsub(class, "%s+", "")), role = combatRole, unit = unit })
+    end
+end
+
 function GetHomePartyInfos()
     local partyMembers = {}
-    local in_group = IsInGroup() or IsInRaid()
-    if in_group then
+    if IsInRaid() then
         for i = 1, GetNumGroupMembers() do
-            local unit = (IsInRaid() and "raid" .. i) or (IsInGroup() and "party" .. i) or "player"
-            local fullName = UnitName(unit)
-            local class = GetUnitClassToken(unit)
-            if fullName == nil then
-                unit = "player"
-                fullName = UnitName(unit)
-                class = GetUnitClassToken(unit)
-            end
-            local combatRole = UnitGroupRolesAssigned(unit)
-            local name = GetCharacterName(fullName)
-            if combatRole == "DAMAGER" then
-                combatRole = "DPS"
-            end
-            if name and class and combatRole then
-                table.insert(partyMembers,
-                    { name = name, class = strupper(string.gsub(class, "%s+", "")), role = combatRole, unit = i })
-            end
+            AddHomePartyInfo(partyMembers, "raid" .. i)
+        end
+    elseif IsInGroup() then
+        AddHomePartyInfo(partyMembers, "player")
+        for i = 1, GetNumSubgroupMembers() do
+            AddHomePartyInfo(partyMembers, "party" .. i)
         end
     else
         local name = UnitName("player")
@@ -1739,8 +1837,10 @@ function GetHomePartyInfos()
         if combatRole == "DAMAGER" then
             combatRole = "DPS"
         end
-        table.insert(partyMembers,
-            { name = name, class = strupper(string.gsub(class, "%s+", "")), role = combatRole, unit = 1 })
+        if name and class and combatRole then
+            table.insert(partyMembers,
+                { name = name, class = strupper(string.gsub(class, "%s+", "")), role = combatRole, unit = "player" })
+        end
     end
 
     return partyMembers
@@ -1759,12 +1859,7 @@ function RightMenu(owner, MenuDesc)
                 if checkboxStates[member.name] then
                     DeleteSelectedPlayerFrame(member.name)
                 else
-                    local unit = nil
-                    if member.name == UnitName("player") then
-                        unit = "player"
-                    else
-                        unit = (IsInRaid() and "raid" .. i) or (IsInGroup() and "party" .. i) or "player"
-                    end
+                    local unit = member.unit
                     CreateSelectedPlayerFrame(member.name, member.class, member.role, unit, member.unit)
                 end
             end,

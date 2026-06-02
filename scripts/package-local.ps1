@@ -17,6 +17,7 @@ $ignoredDirectories = @(
     ".git",
     ".github",
     ".pytest_cache",
+    "backups",
     "dist",
     "tests",
     "scripts"

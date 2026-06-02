@@ -58,6 +58,119 @@ def test_protected_frame_mutations_are_combat_gated():
         assert "CanMutateProtectedFrames()" in body, name
 
 
+def test_secure_spell_buttons_define_action_template_and_modifier_types():
+    create_body = function_body(CORE, "CreateSelectedPlayerFrame")
+    assert "SecureActionButtonTemplate" in create_body
+    assert "SecureUnitButtonTemplate" in create_body
+
+    macro_body = function_body(CORE, "MacroUpdate")
+    assert 'SetAttribute("type1", "spell")' in macro_body
+    assert 'SetAttribute("spell1"' in macro_body
+    assert 'SetAttribute("type2", "spell")' in macro_body
+    assert 'SetAttribute("spell2"' in macro_body
+
+    for modifier in ("alt", "shift", "ctrl"):
+        assert f'SetAttribute("{modifier}-type1", "spell")' in macro_body
+        assert f'SetAttribute("{modifier}-spell1"' in macro_body
+        assert f'SetAttribute("{modifier}-type1", nil)' in macro_body
+        assert f'SetAttribute("{modifier}-spell1", nil)' in macro_body
+
+
+def test_party_member_unit_tokens_are_preserved_instead_of_rebuilt_from_indices():
+    home_body = function_body(CORE, "GetHomePartyInfos")
+    assert "GetNumSubgroupMembers()" in home_body
+    assert 'AddHomePartyInfo(partyMembers, "player")' in home_body
+    assert "unit = unit" in CORE
+    assert "unit = i" not in home_body
+    assert "unit = 1" not in home_body
+    assert "fullName == nil" not in home_body
+
+    for name in ("FrameAutoFill", "GroupUpdate", "RightMenu"):
+        body = function_body(CORE, name)
+        assert "member.unit" in body, name
+        assert '"party" .. i' not in body, name
+        assert '"raid" .. i' not in body, name
+
+
+def test_group_update_removes_frames_without_forward_ipairs_mutation():
+    body = function_body(CORE, "GroupUpdate")
+    assert "for i = #selectedPlayerFrames, 1, -1 do" in body
+    assert "selectedPlayerFrames[i]" in body
+    assert "for _, frame in ipairs(selectedPlayerFrames)" not in body
+
+
+def test_deleted_and_reconfigured_frames_clear_buff_tickers():
+    assert "ClearBuffIcons" in CORE
+
+    delete_body = function_body(CORE, "DeleteSelectedPlayerFrame")
+    assert "ClearBuffIcons(selectedPlayerFrames[playerIndex])" in delete_body
+
+    reconfigure_body = function_body(CORE, "addon:Reconfigure")
+    assert "for i = #selectedPlayerFrames, 1, -1 do" in reconfigure_body
+    assert "ClearBuffIcons(frame)" in reconfigure_body
+    assert "string.match(i" not in reconfigure_body
+    assert "break" not in reconfigure_body
+
+
+def test_favorite_frames_use_real_party_unit_tokens():
+    body = function_body(CORE, "AddFrameFavorite")
+    assert "AddFavoriteFrameForUnit" in CORE
+    assert "if IsInRaid() then" in body
+    assert "elseif IsInGroup() then" in body
+    assert "GetNumSubgroupMembers()" in body
+    assert 'AddFavoriteFrameForUnit("raid" .. i)' in body
+    assert 'AddFavoriteFrameForUnit("party" .. i)' in body
+    assert "(IsInRaid() and" not in body
+
+
+def test_buff_icon_removal_guards_missing_text_and_ticker():
+    body = function_body(CORE, "RemoveBuffIcon")
+    assert 'local buff = playerFrame and playerFrame["buff"]' in body
+    assert 'local iconFrame = buff and buff[buffID]' in body
+    assert 'local text = buff[buffID .. "Text"]' in body
+    assert "if text then" in body
+    assert "if text.ticker then" in body
+
+
+def test_custom_spell_options_use_spell_name_and_icon_texture():
+    classes_body = function_body(CORE, "GetClasses")
+    assert "if spell and spell.name and spell.iconID then" in classes_body
+
+    add_body = function_body(CORE, "SpellListAdd")
+    assert "name = Spell.name" in add_body
+    assert "image = Spell.iconID" in add_body
+    assert "name = Spell.iconID" not in add_body
+    assert "image = icon" not in add_body
+
+
+def test_omnicd_toggle_uses_wow_reloadui_api():
+    assert "C_UI.Reload" not in CORE
+    assert "ReloadUI()" in CORE
+
+
+def test_class_color_reads_have_unknown_class_fallback():
+    assert "GetClassRGB" in CORE
+    assert CORE.count("GetClassRGB(") >= 3
+    assert "SetBackdropColor(classR, classG, classB" in CORE
+    assert "RAID_CLASS_COLORS" in CORE
+
+
+def test_settings_frame_mutations_are_combat_gated():
+    progress_body = function_body(CORE, "CreateProgressBar")
+    assert "CanMutateProtectedFrames()" in progress_body
+    assert "MarkProtectedFrameRefreshPending()" in progress_body
+
+    assert "ApplyButtonHeight" in CORE
+    height_body = function_body(CORE, "ApplyButtonHeight")
+    assert "CanMutateProtectedFrames()" in height_body
+    assert "MarkProtectedFrameRefreshPending()" in height_body
+    assert "frame:SetSize" in height_body
+    assert "SortType()" in height_body
+
+    options_body = function_body(CORE, "GetOptions")
+    assert "ApplyButtonHeight()" in options_body
+
+
 def test_addon_compartment_and_context_menu_hooks_are_guarded():
     assert "if AddonCompartmentFrame and AddonCompartmentFrame.RegisterAddon then" in CORE
     assert "MENU_LFG_FRAME_SEARCH_ENTRY" not in CORE
@@ -88,7 +201,7 @@ def test_local_package_script_documents_expected_zip_surface():
     script = PACKAGE_SCRIPT.read_text(encoding="utf-8")
     assert "EvokerAug-v1.0.24-midnight.1.zip" in script
     assert "dist" in script
-    for ignored in [".git", ".github", "tests", "scripts", ".pytest_cache", "dist", ".gitignore", ".pkgmeta"]:
+    for ignored in [".git", ".github", "tests", "scripts", ".pytest_cache", "dist", "backups", ".gitignore", ".pkgmeta"]:
         assert ignored in script
 
 
