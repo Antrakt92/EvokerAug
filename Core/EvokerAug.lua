@@ -1243,6 +1243,21 @@ local function GroupUpdate()
     end
 end
 
+local function RefreshRuntimeFrames()
+    if not selectedPlayerFrameContainer then
+        return
+    end
+
+    if not ApplyInstanceVisibilityPolicy() then
+        return
+    end
+
+    AddFrameFavorite()
+    if addon.db.profile.autoFrameFill then
+        FrameAutoFill()
+    end
+end
+
 local function GetClasses()
     local Augment = {}
     local augmentationSpells = addon.AllSpellList and addon.AllSpellList["Augmentation"]
@@ -1543,12 +1558,15 @@ local function GetOptions()
                             return addon.db.profile.autoFrameFill
                         end,
                         set = function(info, value)
-                            if value then
-                                selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
-                            else
-                                selectedPlayerFrameContainer:UnregisterEvent("PLAYER_ENTERING_WORLD")
-                            end
                             addon.db.profile.autoFrameFill = value
+                            if selectedPlayerFrameContainer then
+                                if value then
+                                    selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
+                                else
+                                    selectedPlayerFrameContainer:UnregisterEvent("PLAYER_ENTERING_WORLD")
+                                end
+                            end
+                            RefreshRuntimeFrames()
                         end,
                     },
                     raid = {
@@ -1561,6 +1579,7 @@ local function GetOptions()
                         end,
                         set = function(info, value)
                             addon.db.profile.showRaid = value
+                            RefreshRuntimeFrames()
                         end,
                     },
                     mythic = {
@@ -1573,6 +1592,7 @@ local function GetOptions()
                         end,
                         set = function(info, value)
                             addon.db.profile.showMythic = value
+                            RefreshRuntimeFrames()
                         end,
                     },
                     h5 = {
@@ -2180,7 +2200,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
                     if currentSpec ~= 3 then
                         HideAllSubFrames()
                     else
-                        EnableAllFrame()
+                        RefreshRuntimeFrames()
                     end
                 end
             end

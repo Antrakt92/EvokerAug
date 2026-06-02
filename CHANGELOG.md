@@ -38,6 +38,7 @@
 - Reduced internal global namespace leakage so addon helpers and spell tables are less likely to collide with other addons.
 - Hardened local package/install scripts so custom paths cannot escape the intended repo or AddOns roots.
 - Updated README and TOC copy to describe the current Midnight Augmentation buff-tracker behavior.
+- Fixed Mythic+/raid visibility and Auto Frame Fill toggles so they refresh the current runtime frames immediately or queue safely during combat.
 
 ### Added
 
