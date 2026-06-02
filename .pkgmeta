@@ -1,6 +1,12 @@
 package-as: EvokerAug
 enable-nolib-creation: no
 
+ignore:
+  - tests
+  - .github
+  - .gitignore
+  - .pytest_cache
+
 # manual-changelog:
 #   filename: CHANGELOG.md
 #   markup-type: markdown

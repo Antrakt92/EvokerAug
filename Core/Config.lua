@@ -64,8 +64,11 @@ addon.DefaultProfile = {
 }
 
 addon.Config = {
-    ["version"] = "1.0.23",
+    ["version"] = "1.0.24-midnight.1",
     ["changelog"] = [=[
+v1.0.24-midnight.1
+    - Midnight compatibility pass: updated TOC metadata, spellID aura tracking, localized class handling, and combat-safe frame updates.
+
 v1.0.23
     - Fixed the problem of the frame appearing only in gray due to some situations.
 

@@ -17,6 +17,72 @@ local isCombatButton = false
 local discordLinkDialog = "EvokerAUG_General_Settings_Discord_Dialog"
 local LibCustomGlow = LibStub("LibCustomGlow-1.0")
 local DeadorGhostData = {}
+local issecretvalue = _G.issecretvalue or function() return false end
+local EBON_MIGHT_SPELL_IDS = { 395296, 395152 }
+local pendingProtectedFrameRefresh = false
+
+local function IsCleanNumber(value)
+    return type(value) == "number" and not issecretvalue(value)
+end
+
+local function IsCleanPositiveNumber(value)
+    return IsCleanNumber(value) and value > 0
+end
+
+local function CanMutateProtectedFrames()
+    return not combatLockdown and not (InCombatLockdown and InCombatLockdown())
+end
+
+local function MarkProtectedFrameRefreshPending()
+    pendingProtectedFrameRefresh = true
+    isCombatButton = true
+    if addonNameText then
+        addonNameText:SetText(addonName .. " (Waiting for combat to end)")
+    end
+end
+
+local function GetUnitClassToken(unit)
+    local _, classToken = UnitClass(unit)
+    return classToken
+end
+
+local function FindAuraBySpellID(unit, spellID)
+    if not unit or not spellID or not UnitExists(unit) then
+        return nil
+    end
+
+    if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
+        for index = 1, 40 do
+            local aura = C_UnitAuras.GetAuraDataByIndex(unit, index, "HELPFUL")
+            if not aura then
+                break
+            end
+            if aura.spellId == spellID then
+                return aura
+            end
+        end
+    end
+
+    return nil
+end
+
+local function FindTrackedAuraBySpellID(unit, spellID)
+    local aura = FindAuraBySpellID(unit, spellID)
+    if aura and addon.db.profile.buffList[aura.spellId] then
+        return aura
+    end
+    return nil
+end
+
+local function FindFirstAuraBySpellIDs(unit, spellIDs)
+    for _, spellID in ipairs(spellIDs) do
+        local aura = FindAuraBySpellID(unit, spellID)
+        if aura then
+            return aura
+        end
+    end
+    return nil
+end
 -- Map Icon ---
 
 ---@diagnostic disable-next-line: missing-fields
@@ -27,11 +93,11 @@ local miniButton = LibStub("LibDataBroker-1.1"):NewDataObject(addonName,
         icon = "Interface\\AddOns\\EvokerAug\\Media\\augevoker-logo",
         OnClick = function(self, btn)
             if btn == "LeftButton" then
-                if not combatLockdown then
+                if CanMutateProtectedFrames() then
                     addon:OpenOptions()
                 end
             elseif btn == "RightButton" then
-                if not combatLockdown then
+                if CanMutateProtectedFrames() then
                     CheckShoworHide()
                 end
             end
@@ -45,16 +111,18 @@ local miniButton = LibStub("LibDataBroker-1.1"):NewDataObject(addonName,
         end,
     })
 
-AddonCompartmentFrame:RegisterAddon({
-    text = addonName,
-    icon = "Interface\\AddOns\\EvokerAug\\Media\\augevoker-logo",
-    notCheckable = true,
-    func = function()
-        if not combatLockdown then
-            addon:OpenOptions()
-        end
-    end,
-})
+if AddonCompartmentFrame and AddonCompartmentFrame.RegisterAddon then
+    AddonCompartmentFrame:RegisterAddon({
+        text = addonName,
+        icon = "Interface\\AddOns\\EvokerAug\\Media\\augevoker-logo",
+        notCheckable = true,
+        func = function()
+            if CanMutateProtectedFrames() then
+                addon:OpenOptions()
+            end
+        end,
+    })
+end
 
 local function sortFramesByName(a, b)
     local favList = addon.db.profile.favoriPlayer
@@ -146,17 +214,19 @@ function CreateProgressBar()
 
 
         selectedPlayerFrameContainer:SetScript("OnUpdate", function()
-            local aura = C_UnitAuras.GetAuraDataBySpellName("player", "Ebon Might", "HELPFUL") -- Buffun bilgilerini al
-            if (not aura) then return end
-            if aura.expirationTime then
-                local currentTime = GetTime()
-                local remainingTime = aura.expirationTime - currentTime
-                local duration = aura.duration / 100
-                local progress = remainingTime / duration
-                progressBar:SetValue(progress)
-            else
+            local aura = FindFirstAuraBySpellIDs("player", EBON_MIGHT_SPELL_IDS)
+            if not aura or not IsCleanPositiveNumber(aura.expirationTime) or not IsCleanPositiveNumber(aura.duration) then
                 progressBar:SetValue(0)
+                return
             end
+
+            local remainingTime = aura.expirationTime - GetTime()
+            if remainingTime <= 0 then
+                progressBar:SetValue(0)
+                return
+            end
+
+            progressBar:SetValue((remainingTime / aura.duration) * 100)
         end)
     elseif not addon.db.profile.ebonmightProgressBarEnable and progressBar then
         selectedPlayerFrameContainer:SetScript("OnUpdate", nil)
@@ -241,9 +311,16 @@ local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTi
         if playerFrame["buff"] == nil then
             return
         end
-        local duration = playerFrame["buff"][auraInstanceID .. "Text"].timestamp - GetTime()
+        local expirationTime = playerFrame["buff"][auraInstanceID .. "Text"].timestamp
+        local startDuration = playerFrame["buff"][auraInstanceID .. "Text"].starttimestamp
+        if not IsCleanPositiveNumber(expirationTime) or not IsCleanPositiveNumber(startDuration) then
+            playerFrame["buff"][auraInstanceID .. "Text"]:SetText(nil)
+            return
+        end
+
+        local duration = expirationTime - GetTime()
         if addon.db.profile.prescienceBarEnable and icon == 5199639 then
-            local remainingWidth = 150 * (duration / playerFrame["buff"][auraInstanceID .. "Text"].starttimestamp)
+            local remainingWidth = 150 * (duration / startDuration)
             if duration <= 0 then
                 playerFrame.texture:SetSize(1, addon.db.profile.buttonHeight)
             else
@@ -273,17 +350,19 @@ local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTi
     end
 end
 
-local function AddBuffIcons(playerFrame, playerName)
+local function AddBuffIcons(playerFrame, unit)
     if not playerFrame["buff"] then
         playerFrame["buff"] = {}
         playerFrame["buff"].xOffset = 0
     end
 
-    for k, v in pairs(addon.db.profile.buffList) do
-        local spellTable = C_UnitAuras.GetAuraDataBySpellName(playerName, v, "HELPFUL")
+    for k in pairs(addon.db.profile.buffList) do
+        local spellTable = FindTrackedAuraBySpellID(unit, k)
         if spellTable then
-            AddBuffIcon(playerFrame, spellTable.auraInstanceID, spellTable.expirationTime, spellTable.icon,
-                spellTable.duration, spellTable.spellId)
+            if IsCleanPositiveNumber(spellTable.expirationTime) then
+                AddBuffIcon(playerFrame, spellTable.auraInstanceID, spellTable.expirationTime, spellTable.icon,
+                    spellTable.duration, spellTable.spellId)
+            end
         end
     end
 end
@@ -366,12 +445,22 @@ local function MacroUpdate(frame)
 end
 
 local function UpdatePlayerFrame()
+    if not CanMutateProtectedFrames() then
+        MarkProtectedFrameRefreshPending()
+        return
+    end
+
     for i, frame in ipairs(selectedPlayerFrames) do
         MacroUpdate(frame)
     end
 end
 
 local function SortType()
+    if not CanMutateProtectedFrames() then
+        MarkProtectedFrameRefreshPending()
+        return
+    end
+
     table.sort(selectedPlayerFrames, sortTypes[addon.db.profile.sortType])
     local tankCount = 0
     for i, frame in ipairs(selectedPlayerFrames) do
@@ -390,13 +479,14 @@ local function SortType()
 end
 
 local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitIndex, unittt)
-    if combatLockdown then
+    if not CanMutateProtectedFrames() then
+        MarkProtectedFrameRefreshPending()
         return
     end
     local frameIndex = #selectedPlayerFrames + 1
     checkboxStates[playerName] = true
     selectedPlayerFrames[frameIndex] = CreateFrame("Button", "EvokerAugPartyFrame" .. unittt, UIParent,
-        BackdropTemplateMixin and "BackdropTemplate, SecureUnitButtonTemplate")
+        BackdropTemplateMixin and "BackdropTemplate,SecureUnitButtonTemplate" or "SecureUnitButtonTemplate")
     selectedPlayerFrames[frameIndex]:SetSize(150, addon.db.profile.buttonHeight)
     selectedPlayerFrames[frameIndex]["buff"] = {}
     selectedPlayerFrames[frameIndex]["buff"].xOffset = 0
@@ -407,7 +497,7 @@ local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitInde
     selectedPlayerFrames[frameIndex].unit = unitIndex
     selectedPlayerFrames[frameIndex]:RegisterForClicks("AnyDown")
 
-    AddBuffIcons(selectedPlayerFrames[frameIndex], playerName)
+    AddBuffIcons(selectedPlayerFrames[frameIndex], unitIndex)
 
     selectedPlayerFrames[frameIndex]:SetAttribute('unitName', playerName)
     selectedPlayerFrames[frameIndex]:SetAttribute('unitID', unitIndex)
@@ -479,6 +569,11 @@ local function IsPlayerFrameByName(name)
 end
 
 local function DeleteSelectedPlayerFrame(playerName)
+    if not CanMutateProtectedFrames() then
+        MarkProtectedFrameRefreshPending()
+        return
+    end
+
     local playerIndex = GetPlayerFrameIndexByName(playerName)
     if playerIndex and selectedPlayerFrames[playerIndex] then
         selectedPlayerFrames[playerIndex]:Hide()
@@ -498,6 +593,11 @@ local function DeleteSelectedPlayerFrame(playerName)
 end
 
 local function AddFrameFavorite()
+    if not CanMutateProtectedFrames() then
+        MarkProtectedFrameRefreshPending()
+        return
+    end
+
     --- Favorite Check
     local in_group = IsInGroup() or IsInRaid()
     if in_group then
@@ -505,7 +605,7 @@ local function AddFrameFavorite()
             local unitID = (IsInRaid() and "raid" .. i) or (IsInGroup() and "party" .. i) or "player"
             local fullName, realm = UnitName(unitID)
             if fullName then
-                local class = UnitClass(unitID)
+                local class = GetUnitClassToken(unitID)
                 if not realm then
                     realm = GetRealmName()
                     fullName = fullName .. "-" .. realm
@@ -530,9 +630,8 @@ local function AddFrameFavorite()
 end
 
 local function FrameAutoFill()
-    if combatLockdown then
-        isCombatButton = true
-        addonNameText:SetText(addonName .. " (Waiting for combat to end)")
+    if not CanMutateProtectedFrames() then
+        MarkProtectedFrameRefreshPending()
         return
     end
     local partyMembers = GetHomePartyInfos()
@@ -561,6 +660,11 @@ local function FrameAutoFill()
 end
 
 local function GroupUpdate()
+    if not CanMutateProtectedFrames() then
+        MarkProtectedFrameRefreshPending()
+        return
+    end
+
     local partyMembers = GetHomePartyInfos()
 
     for _, frame in ipairs(selectedPlayerFrames) do
@@ -1253,8 +1357,10 @@ local function GetOptions()
                         desc = "If you have OmniCD installed, you can see the cooldowns of the spells you have added.",
                         get = function() return addon.db.profile.omniCDSupport end,
                         set = function(_, value)
-                            local state = C_AddOns.GetAddOnEnableState("OmniCD", UnitName('player'))
-                            if state == 2 then
+                            local loaded = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("OmniCD")
+                            local state = C_AddOns and C_AddOns.GetAddOnEnableState and
+                                C_AddOns.GetAddOnEnableState("OmniCD", UnitGUID("player"))
+                            if loaded or state == 2 then
                                 addon.db.profile.omniCDSupport = value
                                 C_UI.Reload()
                             end
@@ -1404,10 +1510,15 @@ function addon:OnEnable() -- PLAYER_LOGIN
             combatLockdown = true
         elseif event == "PLAYER_REGEN_ENABLED" then
             combatLockdown = false
-            if isCombatButton then
+            if isCombatButton or pendingProtectedFrameRefresh then
                 addonNameText:SetText(addonName)
                 isCombatButton = false
-                FrameAutoFill()
+                pendingProtectedFrameRefresh = false
+                GroupUpdate()
+                AddFrameFavorite()
+                if addon.db.profile.autoFrameFill then
+                    FrameAutoFill()
+                end
             end
         elseif event == "PLAYER_ENTERING_WORLD" then
             if addon.db.profile.autoFrameFill then
@@ -1463,7 +1574,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
             if info.addedAuras and #info.addedAuras > 0 and selectedPlayerFrames[frameIndex] then
                 for _, v in ipairs(info.addedAuras) do
                     if addon.db.profile.buffList[v.spellId] then
-                        if v.expirationTime > 0 and selectedPlayerFrames[frameIndex] then
+                        if IsCleanPositiveNumber(v.expirationTime) and selectedPlayerFrames[frameIndex] then
                             AddBuffIcon(selectedPlayerFrames[frameIndex], v.auraInstanceID, v.expirationTime, v.icon,
                                 v.duration, v.spellId)
                         end
@@ -1474,7 +1585,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
                 for _, v in ipairs(info.updatedAuraInstanceIDs) do
                     local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, v)
                     if aura and addon.db.profile.buffList[aura.spellId] then
-                        if aura.expirationTime > 0 then
+                        if IsCleanPositiveNumber(aura.expirationTime) then
                             AddBuffIcon(selectedPlayerFrames[frameIndex], aura.auraInstanceID, aura.expirationTime,
                                 aura.icon, aura.duration, aura.spellId)
                         end
@@ -1515,7 +1626,11 @@ function addon:OnEnable() -- PLAYER_LOGIN
     end)
 
     selectedPlayerFrameContainer:SetScript("OnMouseUp", function(sel, button)
-        if button == "RightButton" then
+        if not CanMutateProtectedFrames() then
+            return
+        end
+
+        if button == "RightButton" and MenuUtil and MenuUtil.CreateContextMenu then
             MenuUtil.CreateContextMenu(UIParent, RightMenu)
         elseif button == "LeftButton" then
             addon:OpenOptions()
@@ -1539,7 +1654,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
         CreateProgressBar()
     end
 
-    local class = select(2, UnitClass("player"))
+    local class = GetUnitClassToken("player")
     if class ~= "EVOKER" then
         HideAllSubFrames()
     else
@@ -1599,10 +1714,12 @@ function GetHomePartyInfos()
     if in_group then
         for i = 1, GetNumGroupMembers() do
             local unit = (IsInRaid() and "raid" .. i) or (IsInGroup() and "party" .. i) or "player"
-            local fullName, class = UnitName(unit), UnitClass(unit)
+            local fullName = UnitName(unit)
+            local class = GetUnitClassToken(unit)
             if fullName == nil then
                 unit = "player"
-                fullName, class = UnitName(unit), UnitClass(unit)
+                fullName = UnitName(unit)
+                class = GetUnitClassToken(unit)
             end
             local combatRole = UnitGroupRolesAssigned(unit)
             local name = GetCharacterName(fullName)
@@ -1615,7 +1732,8 @@ function GetHomePartyInfos()
             end
         end
     else
-        local name, class = UnitName("player"), UnitClass("player")
+        local name = UnitName("player")
+        local class = GetUnitClassToken("player")
         local specializationIndex = GetSpecialization() or 0
         local _, _, _, _, combatRole, _ = GetSpecializationInfo(specializationIndex)
         if combatRole == "DAMAGER" then
@@ -1681,7 +1799,7 @@ end
 
 LibStub("AceConfig-3.0"):RegisterOptionsTable(addonName, GetOptions)
 function addon:OpenOptions(...)
-    if not combatLockdown then
+    if CanMutateProtectedFrames() then
         AceConfigDialog:SetDefaultSize(addonName, 460, 750)
         if select('#', ...) > 0 then
             AceConfigDialog:Open(addonName)
@@ -1693,11 +1811,20 @@ function addon:OpenOptions(...)
 end
 
 function HideAllSubFrames()
+    if not CanMutateProtectedFrames() then
+        MarkProtectedFrameRefreshPending()
+        return
+    end
+
     for i, frame in pairs(selectedPlayerFrames) do
         frame:Hide()
     end
-    selectedPlayerFrameContainer:Hide()
-    addonNameText:Hide()
+    if selectedPlayerFrameContainer then
+        selectedPlayerFrameContainer:Hide()
+    end
+    if addonNameText then
+        addonNameText:Hide()
+    end
     if progressBar then
         progressBar:Hide()
         progressBar.text:Hide()
@@ -1705,13 +1832,20 @@ function HideAllSubFrames()
 end
 
 function EnableAllFrame()
+    if not CanMutateProtectedFrames() then
+        MarkProtectedFrameRefreshPending()
+        return
+    end
+
     for i, frame in pairs(selectedPlayerFrames) do
         frame:Show()
     end
     if selectedPlayerFrameContainer then
         selectedPlayerFrameContainer:Show()
     end
-    addonNameText:Show()
+    if addonNameText then
+        addonNameText:Show()
+    end
     if progressBar then
         progressBar:Show()
         progressBar.text:Show()
@@ -1762,8 +1896,6 @@ function AddItemsWithMenu()
         ["MENU_UNIT_FRIEND"] = true,
         ["MENU_UNIT_COMMUNITIES_GUILD_MEMBER"] = true,
         ["MENU_UNIT_COMMUNITIES_MEMBER"] = true,
-        ["MENU_LFG_FRAME_SEARCH_ENTRY"] = true,
-        ["MENU_LFG_FRAME_MEMBER_APPLY"] = true,
     }
 
     for tag, enabled in pairs(menuTags) do
