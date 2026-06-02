@@ -60,6 +60,12 @@ addon.DefaultProfile = {
         },
         disabledBuffList = {},
         customBuffList = {},
+        offensiveBuffs = {
+            enabled = true,
+            disabled = {},
+            custom = {},
+            tiers = {},
+        },
         omniCDSupport = false,
         favoriPlayer = {},
     }

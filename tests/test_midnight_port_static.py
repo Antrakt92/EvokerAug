@@ -60,6 +60,9 @@ def test_default_frame_starts_unlocked_for_initial_positioning():
 
 def test_aura_tracking_is_spell_id_based_for_midnight():
     assert "GetAuraDataBySpellName" not in CORE
+    assert "COMBAT_LOG_EVENT_UNFILTERED" not in CORE
+    assert "GetSpellCooldown" not in CORE
+    assert "GetSpellCharges" not in CORE
     assert "FindTrackedAuraBySpellID" in CORE
     assert "EBON_MIGHT_SPELL_IDS" in CORE
     assert "issecretvalue" in CORE
@@ -69,6 +72,11 @@ def test_aura_tracking_is_spell_id_based_for_midnight():
     assert "GetUnitAuraBySpellID" in find_body
     assert "GetAuraDataByIndex" not in find_body
     assert "for index = 1, 40" not in find_body
+
+    exists_body = function_body(CORE, "HasHelpfulAuraBySpellID")
+    assert "GetUnitAuraBySpellID" in exists_body
+    assert "AuraUtil.ForEachAura" in exists_body
+    assert "IsUsableAuraData" not in exists_body
 
 
 def test_localized_class_names_are_not_used_as_class_tokens():
@@ -419,6 +427,109 @@ def test_tracked_buff_setting_changes_reconcile_active_icons():
     assert "for _, frame in ipairs(selectedPlayerFrames)" in reconcile_all_body
     assert "if frame.unit then" in reconcile_all_body
     assert "ReconcileTrackedAurasForUnit(frame.unit)" in reconcile_all_body
+
+
+def test_offensive_buff_defaults_cover_major_visible_burst_windows():
+    assert "addon.OffensiveBuffList = {" in SPELL_LIST
+    assert "OFFENSIVE_TIER_MAJOR" in CORE
+    assert "OFFENSIVE_TIER_MINOR" in CORE
+
+    for spell_id, name in {
+        51271: "Pillar of Frost",
+        162264: "Metamorphosis",
+        1217607: "Void Metamorphosis",
+        194223: "Celestial Alignment",
+        375087: "Dragonrage",
+        19574: "Bestial Wrath",
+        190319: "Combustion",
+        365362: "Arcane Surge",
+        137639: "Storm, Earth, and Fire",
+        31884: "Avenging Wrath",
+        10060: "Power Infusion",
+        13750: "Adrenaline Rush",
+        114051: "Ascendance",
+        265273: "Summon Demonic Tyrant",
+        107574: "Avatar",
+    }.items():
+        assert f"[{spell_id}] = " in SPELL_LIST
+        assert f'name = "{name}"' in SPELL_LIST
+
+    assert 'tier = "major"' in SPELL_LIST
+    assert 'tier = "minor"' in SPELL_LIST
+    assert "Devourer" not in SPELL_LIST
+    assert "1480" not in SPELL_LIST
+
+
+def test_offensive_buff_profile_state_is_separate_from_tracked_buff_icons():
+    assert "offensiveBuffs = {" in CONFIG
+    assert "disabled = {}" in CONFIG
+    assert "custom = {}" in CONFIG
+    assert "tiers = {}" in CONFIG
+
+    normalize_body = function_body(CORE, "NormalizeProfileShape")
+    assert 'EnsureProfileTable(profile, defaults, "offensiveBuffs")' in normalize_body
+    assert "NormalizeOffensiveBuffState()" in normalize_body
+
+    ensure_body = function_body(CORE, "EnsureOffensiveBuffStateTables")
+    assert 'EnsureProfileTable(profile.offensiveBuffs, defaults.offensiveBuffs, "disabled")' in ensure_body
+    assert 'EnsureProfileTable(profile.offensiveBuffs, defaults.offensiveBuffs, "custom")' in ensure_body
+    assert 'EnsureProfileTable(profile.offensiveBuffs, defaults.offensiveBuffs, "tiers")' in ensure_body
+
+    definition_body = function_body(CORE, "GetOffensiveBuffDefinition")
+    assert "addon.OffensiveBuffList" in definition_body
+    assert "offensiveBuffs.custom" in definition_body
+    assert "GetCleanPositiveSpellID(spellID)" in definition_body
+
+    assert "offensiveBuffs" not in function_body(CORE, "AddBuffIcons")
+
+
+def test_offensive_buff_state_mapping_and_visual_layers_are_explicit():
+    assert "OFFENSIVE_STATE_NONE" in CORE
+    assert "OFFENSIVE_STATE_MINOR" in CORE
+    assert "OFFENSIVE_STATE_MAJOR" in CORE
+    assert "OFFENSIVE_STATE_BOTH" in CORE
+    assert "OFFENSIVE_MAJOR_GLOW_KEY" in CORE
+
+    state_body = function_body(CORE, "GetOffensiveStateForUnit")
+    assert "HasHelpfulAuraBySpellID(unit, spellID)" in state_body
+    assert "IsOffensiveBuffEnabled(spellID)" in state_body
+    assert "return OFFENSIVE_STATE_BOTH" in state_body
+    assert "return OFFENSIVE_STATE_MAJOR" in state_body
+    assert "return OFFENSIVE_STATE_MINOR" in state_body
+    assert "return OFFENSIVE_STATE_NONE" in state_body
+
+    apply_body = function_body(CORE, "ApplyOffensiveBuffVisualState")
+    assert "LibCustomGlow.PixelGlow_Start" in apply_body
+    assert "LibCustomGlow.PixelGlow_Stop(playerFrame, OFFENSIVE_MAJOR_GLOW_KEY)" in apply_body
+    assert "playerFrame.offensiveMinorMarker" in apply_body
+    assert "OFFENSIVE_MINOR_MARKER_COLOR" in apply_body
+    assert "playerFrame.offensiveState = state" in apply_body
+
+
+def test_unit_aura_reconciles_offensive_highlights_without_name_scans():
+    reconcile_body = function_body(CORE, "ReconcileTrackedAurasForUnit")
+    assert "RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)" in reconcile_body
+
+    unit_aura_body = CORE[CORE.index('elseif event == "UNIT_AURA"') :]
+    unit_aura_body = unit_aura_body[: unit_aura_body.index('elseif event == "UNIT_FLAGS"')]
+    assert "RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)" in unit_aura_body
+    assert "GetAuraDataBySpellName" not in unit_aura_body
+    assert "string.find" not in unit_aura_body
+    assert "string.match" not in unit_aura_body
+
+
+def test_offensive_buff_options_have_global_toggle_and_tier_controls():
+    options_body = function_body(CORE, "GetOptions")
+    assert 'offensiveBuffs = {' in options_body
+    assert 'name = "Offensive Buffs"' in options_body
+    assert 'addon.db.profile.offensiveBuffs.enabled = value' in options_body
+    assert "AddOffensiveBuffOption" in options_body
+    assert "AddSavedCustomOffensiveBuffOptions()" in options_body
+
+    option_body = function_body(CORE, "AddOffensiveBuffOption")
+    assert "SetOffensiveBuffEnabled(spellID, value, isCustom)" in option_body
+    assert "SetOffensiveBuffTier(spellID, value)" in option_body
+    assert "values = OFFENSIVE_TIER_LABELS" in option_body
 
 
 def test_aura_payload_fields_are_secret_guarded_before_use():

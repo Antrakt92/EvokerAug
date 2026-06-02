@@ -21,6 +21,16 @@ local issecretvalue = _G.issecretvalue or function() return false end
 local EBON_MIGHT_SPELL_IDS = { 395296, 395152 }
 local PRESCIENCE_ICON_ID = 5199639
 local PLAYER_FRAME_WIDTH = 150
+local OFFENSIVE_TIER_MAJOR = "major"
+local OFFENSIVE_TIER_MINOR = "minor"
+local OFFENSIVE_TIER_LABELS = { major = "Major", minor = "Minor" }
+local OFFENSIVE_STATE_NONE = "none"
+local OFFENSIVE_STATE_MINOR = "minor"
+local OFFENSIVE_STATE_MAJOR = "major"
+local OFFENSIVE_STATE_BOTH = "both"
+local OFFENSIVE_MAJOR_GLOW_KEY = "EvokerAugOffensiveMajor"
+local OFFENSIVE_MAJOR_GLOW_COLOR = { 1, 0.76, 0.18, 1 }
+local OFFENSIVE_MINOR_MARKER_COLOR = { 0.2, 0.95, 1, 0.9 }
 local pendingProtectedFrameRefresh = false
 local pendingActiveProfileApply = false
 local instanceContextGeneration = 0
@@ -34,6 +44,9 @@ local GetHomePartyInfos
 local RightMenu
 local IsFavorite
 local AddItemsWithMenu
+local EnsureOffensiveBuffStateTables
+local RefreshOffensiveBuffHighlight
+local RefreshOffensiveBuffHighlightsForAllSelectedUnits
 local VALID_FRAME_POINTS = {
     TOPLEFT = true,
     TOP = true,
@@ -185,6 +198,34 @@ local function FindAuraBySpellID(unit, spellID)
     return nil
 end
 
+local function HasHelpfulAuraBySpellID(unit, spellID)
+    spellID = GetCleanPositiveSpellID(spellID)
+    if not unit or not spellID or not UnitExists(unit) then
+        return false
+    end
+
+    if C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID then
+        local aura = C_UnitAuras.GetUnitAuraBySpellID(unit, spellID)
+        if aura and GetCleanPositiveSpellID(aura.spellId) == spellID then
+            return true
+        end
+    end
+
+    if AuraUtil and AuraUtil.ForEachAura then
+        local found = false
+        AuraUtil.ForEachAura(unit, "HELPFUL", nil, function(aura)
+            if aura and GetCleanPositiveSpellID(aura.spellId) == spellID then
+                found = true
+                return true
+            end
+            return false
+        end, true)
+        return found
+    end
+
+    return false
+end
+
 local function EnsureTrackedBuffStateTables()
     if not addon.db or not addon.db.profile then
         return
@@ -289,6 +330,116 @@ local function FindFirstAuraBySpellIDs(unit, spellIDs)
         end
     end
     return nil
+end
+
+local function NormalizeOffensiveTier(tier)
+    if tier == OFFENSIVE_TIER_MAJOR or tier == OFFENSIVE_TIER_MINOR then
+        return tier
+    end
+    return nil
+end
+
+local function GetOffensiveBuffDefinition(spellID)
+    spellID = GetCleanPositiveSpellID(spellID)
+    if not spellID or not addon.db or not addon.db.profile then
+        return nil
+    end
+
+    EnsureOffensiveBuffStateTables()
+    local offensiveBuffs = addon.db.profile.offensiveBuffs
+    local custom = offensiveBuffs.custom or {}
+    local defaults = addon.OffensiveBuffList or {}
+    local definition = custom[spellID] or defaults[spellID]
+    if type(definition) ~= "table" then
+        return nil
+    end
+
+    local tiers = offensiveBuffs.tiers or {}
+    local tier = NormalizeOffensiveTier(tiers[spellID]) or NormalizeOffensiveTier(definition.tier) or
+        OFFENSIVE_TIER_MINOR
+    return definition, tier
+end
+
+local function IsOffensiveBuffEnabled(spellID)
+    spellID = GetCleanPositiveSpellID(spellID)
+    if not spellID or not addon.db or not addon.db.profile then
+        return false
+    end
+
+    EnsureOffensiveBuffStateTables()
+    local offensiveBuffs = addon.db.profile.offensiveBuffs
+    if offensiveBuffs.enabled == false or offensiveBuffs.disabled[spellID] then
+        return false
+    end
+
+    return GetOffensiveBuffDefinition(spellID) ~= nil
+end
+
+local function SetOffensiveBuffEnabled(spellID, enabled, isCustom)
+    spellID = GetCleanPositiveSpellID(spellID)
+    if not spellID or not addon.db or not addon.db.profile then
+        return
+    end
+
+    EnsureOffensiveBuffStateTables()
+    local offensiveBuffs = addon.db.profile.offensiveBuffs
+    if enabled then
+        offensiveBuffs.disabled[spellID] = nil
+        if isCustom and not offensiveBuffs.custom[spellID] then
+            offensiveBuffs.custom[spellID] = {
+                name = "Custom Offensive Buff",
+                tier = OFFENSIVE_TIER_MINOR,
+            }
+        end
+    elseif isCustom then
+        offensiveBuffs.custom[spellID] = nil
+        offensiveBuffs.tiers[spellID] = nil
+        offensiveBuffs.disabled[spellID] = nil
+    else
+        offensiveBuffs.disabled[spellID] = true
+    end
+
+    if RefreshOffensiveBuffHighlightsForAllSelectedUnits then
+        RefreshOffensiveBuffHighlightsForAllSelectedUnits()
+    end
+end
+
+local function SetOffensiveBuffTier(spellID, tier)
+    spellID = GetCleanPositiveSpellID(spellID)
+    tier = NormalizeOffensiveTier(tier)
+    if not spellID or not tier or not addon.db or not addon.db.profile then
+        return
+    end
+
+    EnsureOffensiveBuffStateTables()
+    addon.db.profile.offensiveBuffs.tiers[spellID] = tier
+    if addon.db.profile.offensiveBuffs.custom[spellID] then
+        addon.db.profile.offensiveBuffs.custom[spellID].tier = tier
+    end
+
+    if RefreshOffensiveBuffHighlightsForAllSelectedUnits then
+        RefreshOffensiveBuffHighlightsForAllSelectedUnits()
+    end
+end
+
+local function SetCustomOffensiveBuff(spellID, spellName, tier)
+    spellID = GetCleanPositiveSpellID(spellID)
+    tier = NormalizeOffensiveTier(tier) or OFFENSIVE_TIER_MINOR
+    if not spellID or not spellName or not addon.db or not addon.db.profile then
+        return
+    end
+
+    EnsureOffensiveBuffStateTables()
+    addon.db.profile.offensiveBuffs.custom[spellID] = {
+        name = spellName,
+        tier = tier,
+    }
+    addon.db.profile.offensiveBuffs.disabled[spellID] = nil
+    addon.db.profile.offensiveBuffs.tiers[spellID] = tier
+
+    if RefreshOffensiveBuffHighlightsForAllSelectedUnits then
+        RefreshOffensiveBuffHighlightsForAllSelectedUnits()
+    end
 end
 -- Map Icon ---
 
@@ -547,6 +698,66 @@ local function ClampNumberSetting(profile, defaults, key, minValue, maxValue)
     profile[key] = value
 end
 
+EnsureOffensiveBuffStateTables = function()
+    if not addon.db or not addon.db.profile then
+        return
+    end
+
+    local profile = addon.db.profile
+    local defaults = addon.DefaultProfile and addon.DefaultProfile.profile
+    if type(defaults) ~= "table" then
+        return
+    end
+
+    EnsureProfileTable(profile, defaults, "offensiveBuffs")
+    EnsureProfileTable(profile.offensiveBuffs, defaults.offensiveBuffs, "disabled")
+    EnsureProfileTable(profile.offensiveBuffs, defaults.offensiveBuffs, "custom")
+    EnsureProfileTable(profile.offensiveBuffs, defaults.offensiveBuffs, "tiers")
+end
+
+local function NormalizeOffensiveBuffState()
+    EnsureOffensiveBuffStateTables()
+    if not addon.db or not addon.db.profile then
+        return
+    end
+
+    local defaults = addon.DefaultProfile and addon.DefaultProfile.profile
+    local offensiveBuffs = addon.db.profile.offensiveBuffs
+    if type(defaults) ~= "table" or type(offensiveBuffs) ~= "table" then
+        return
+    end
+
+    if type(offensiveBuffs.enabled) ~= "boolean" then
+        offensiveBuffs.enabled = defaults.offensiveBuffs.enabled
+    end
+    for spellID in pairs(offensiveBuffs.disabled) do
+        if not GetCleanPositiveSpellID(spellID) then
+            offensiveBuffs.disabled[spellID] = nil
+        end
+    end
+
+    for spellID, tier in pairs(offensiveBuffs.tiers) do
+        if not GetCleanPositiveSpellID(spellID) or not NormalizeOffensiveTier(tier) then
+            offensiveBuffs.tiers[spellID] = nil
+        end
+    end
+
+    for spellID, definition in pairs(offensiveBuffs.custom) do
+        local cleanSpellID = GetCleanPositiveSpellID(spellID)
+        if not cleanSpellID or type(definition) ~= "table" then
+            offensiveBuffs.custom[spellID] = nil
+        else
+            definition.name = type(definition.name) == "string" and definition.name ~= "" and definition.name or
+                "Custom Offensive Buff"
+            definition.tier = NormalizeOffensiveTier(definition.tier) or OFFENSIVE_TIER_MINOR
+            if cleanSpellID ~= spellID then
+                offensiveBuffs.custom[cleanSpellID] = definition
+                offensiveBuffs.custom[spellID] = nil
+            end
+        end
+    end
+end
+
 local function NormalizeProfileShape()
     if not addon.db or not addon.db.profile then
         return
@@ -568,11 +779,13 @@ local function NormalizeProfileShape()
     EnsureProfileTable(profile, defaults, "charSpell")
     EnsureProfileTable(profile, defaults, "minimap")
     EnsureProfileTable(profile, defaults, "positions")
+    EnsureProfileTable(profile, defaults, "offensiveBuffs")
 
     EnsureDefaultTableFields(profile.macro, defaults.macro)
     EnsureDefaultTableFields(profile.tankMacros, defaults.tankMacros)
     EnsureDefaultTableFields(profile.dpsMacros, defaults.dpsMacros)
     EnsureDefaultTableFields(profile.minimap, defaults.minimap)
+    NormalizeOffensiveBuffState()
 
     ClampNumberSetting(profile, defaults, "buttonHeight", 20, 40)
     ClampNumberSetting(profile, defaults, "spellIconSize", 20, 40)
@@ -845,6 +1058,9 @@ local function ApplyPlayerFrameVisualAlpha(playerFrame, alpha)
     if playerFrame.playerNameText then
         playerFrame.playerNameText:SetAlpha(alpha)
     end
+    if playerFrame.offensiveMinorMarker then
+        playerFrame.offensiveMinorMarker:SetAlpha(alpha)
+    end
 
     local buff = playerFrame["buff"]
     if buff then
@@ -856,6 +1072,114 @@ local function ApplyPlayerFrameVisualAlpha(playerFrame, alpha)
             end
         end
     end
+end
+
+local function CreateOffensiveMinorMarker(playerFrame)
+    if not playerFrame or playerFrame.offensiveMinorMarker then
+        return
+    end
+
+    local marker = playerFrame:CreateTexture(nil, "OVERLAY")
+    marker:SetColorTexture(OFFENSIVE_MINOR_MARKER_COLOR[1], OFFENSIVE_MINOR_MARKER_COLOR[2],
+        OFFENSIVE_MINOR_MARKER_COLOR[3], OFFENSIVE_MINOR_MARKER_COLOR[4])
+    marker:SetPoint("TOPLEFT", playerFrame, "TOPLEFT", -3, 0)
+    marker:SetPoint("BOTTOMLEFT", playerFrame, "BOTTOMLEFT", -3, 0)
+    marker:SetWidth(4)
+    marker:Hide()
+    playerFrame.offensiveMinorMarker = marker
+end
+
+local function ApplyOffensiveBuffVisualState(playerFrame, state)
+    if not playerFrame then
+        return
+    end
+
+    if state ~= OFFENSIVE_STATE_MINOR and state ~= OFFENSIVE_STATE_MAJOR and state ~= OFFENSIVE_STATE_BOTH then
+        state = OFFENSIVE_STATE_NONE
+    end
+
+    local hasMajor = state == OFFENSIVE_STATE_MAJOR or state == OFFENSIVE_STATE_BOTH
+    local hasMinor = state == OFFENSIVE_STATE_MINOR or state == OFFENSIVE_STATE_BOTH
+
+    if hasMajor then
+        LibCustomGlow.PixelGlow_Start(playerFrame, OFFENSIVE_MAJOR_GLOW_COLOR, 8, 0.35, 10, 3, 0, 0, true,
+            OFFENSIVE_MAJOR_GLOW_KEY)
+    else
+        LibCustomGlow.PixelGlow_Stop(playerFrame, OFFENSIVE_MAJOR_GLOW_KEY)
+    end
+
+    if not playerFrame.offensiveMinorMarker and CanMutateProtectedFrames() then
+        CreateOffensiveMinorMarker(playerFrame)
+    end
+
+    if playerFrame.offensiveMinorMarker then
+        if hasMinor then
+            playerFrame.offensiveMinorMarker:SetColorTexture(OFFENSIVE_MINOR_MARKER_COLOR[1],
+                OFFENSIVE_MINOR_MARKER_COLOR[2], OFFENSIVE_MINOR_MARKER_COLOR[3], OFFENSIVE_MINOR_MARKER_COLOR[4])
+            playerFrame.offensiveMinorMarker:SetAlpha(playerFrame.visualAlpha or 0.9)
+            playerFrame.offensiveMinorMarker:Show()
+        else
+            playerFrame.offensiveMinorMarker:Hide()
+        end
+    end
+
+    playerFrame.offensiveState = state
+end
+
+local function GetOffensiveStateForUnit(unit)
+    if not unit or not addon.db or not addon.db.profile then
+        return OFFENSIVE_STATE_NONE
+    end
+
+    EnsureOffensiveBuffStateTables()
+    if addon.db.profile.offensiveBuffs.enabled == false then
+        return OFFENSIVE_STATE_NONE
+    end
+
+    local hasMajor = false
+    local hasMinor = false
+    local defaultList = addon.OffensiveBuffList or {}
+
+    for spellID in pairs(defaultList) do
+        if IsOffensiveBuffEnabled(spellID) and HasHelpfulAuraBySpellID(unit, spellID) then
+            local _, tier = GetOffensiveBuffDefinition(spellID)
+            if tier == OFFENSIVE_TIER_MAJOR then
+                hasMajor = true
+            elseif tier == OFFENSIVE_TIER_MINOR then
+                hasMinor = true
+            end
+        end
+    end
+
+    local custom = addon.db.profile.offensiveBuffs.custom or {}
+    for spellID in pairs(custom) do
+        if not defaultList[spellID] and IsOffensiveBuffEnabled(spellID) and HasHelpfulAuraBySpellID(unit, spellID) then
+            local _, tier = GetOffensiveBuffDefinition(spellID)
+            if tier == OFFENSIVE_TIER_MAJOR then
+                hasMajor = true
+            elseif tier == OFFENSIVE_TIER_MINOR then
+                hasMinor = true
+            end
+        end
+    end
+
+    if hasMajor and hasMinor then
+        return OFFENSIVE_STATE_BOTH
+    end
+    if hasMajor then
+        return OFFENSIVE_STATE_MAJOR
+    end
+    if hasMinor then
+        return OFFENSIVE_STATE_MINOR
+    end
+    return OFFENSIVE_STATE_NONE
+end
+
+RefreshOffensiveBuffHighlight = function(playerFrame, unit)
+    if not playerFrame or not unit then
+        return
+    end
+    ApplyOffensiveBuffVisualState(playerFrame, GetOffensiveStateForUnit(unit))
 end
 
 local function ClearBuffIcons(playerFrame)
@@ -1210,8 +1534,10 @@ local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitInde
     selectedPlayerFrames[frameIndex].texture:SetPoint('BOTTOM', selectedPlayerFrames[frameIndex], 'BOTTOM')
     selectedPlayerFrames[frameIndex].texture:SetPoint('LEFT', selectedPlayerFrames[frameIndex], 'LEFT')
     selectedPlayerFrames[frameIndex].texture:SetTexture(addon.db.profile.backgroundTextTexture)
+    CreateOffensiveMinorMarker(selectedPlayerFrames[frameIndex])
     ApplyPrescienceBarFill(selectedPlayerFrames[frameIndex], nil, nil)
     AddBuffIcons(selectedPlayerFrames[frameIndex], unitIndex)
+    RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unitIndex)
 
 
     selectedPlayerFrames[frameIndex].playerNameText = selectedPlayerFrames[frameIndex]:CreateFontString(nil, "OVERLAY",
@@ -1246,12 +1572,21 @@ local function ReconcileTrackedAurasForUnit(unit)
 
     ClearBuffIcons(selectedPlayerFrames[frameIndex])
     AddBuffIcons(selectedPlayerFrames[frameIndex], unit)
+    RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)
 end
 
 ReconcileTrackedAurasForAllSelectedUnits = function()
     for _, frame in ipairs(selectedPlayerFrames) do
         if frame.unit then
             ReconcileTrackedAurasForUnit(frame.unit)
+        end
+    end
+end
+
+RefreshOffensiveBuffHighlightsForAllSelectedUnits = function()
+    for _, frame in ipairs(selectedPlayerFrames) do
+        if frame.unit then
+            RefreshOffensiveBuffHighlight(frame, frame.unit)
         end
     end
 end
@@ -1285,6 +1620,7 @@ local function DeleteSelectedPlayerFrame(identityKey, skipSort)
     local playerIndex = GetPlayerFrameIndexByIdentity(identityKey)
     if playerIndex and selectedPlayerFrames[playerIndex] then
         ClearBuffIcons(selectedPlayerFrames[playerIndex])
+        ApplyOffensiveBuffVisualState(selectedPlayerFrames[playerIndex], OFFENSIVE_STATE_NONE)
         selectedPlayerFrames[playerIndex]:Hide()
         selectedPlayerFrames[playerIndex]:ClearAllPoints()
         selectedPlayerFrames[playerIndex]:SetParent(nil)
@@ -1519,6 +1855,71 @@ local function AddTrackedBuffOption(spellId, spellName, iconID, isCustom, order)
     }
 end
 
+local function AddOffensiveBuffOption(spellID, definition, isCustom, order)
+    if not EvokerAugOptions.args or not EvokerAugOptions.args.offensiveBuffs then
+        return
+    end
+
+    spellID = GetCleanPositiveSpellID(spellID)
+    if not spellID or type(definition) ~= "table" then
+        return
+    end
+
+    local spell = C_Spell.GetSpellInfo(spellID)
+    local spellName = spell and spell.name or definition.name or ("Spell " .. spellID)
+    local iconID = spell and spell.iconID
+    local optionKey = "offensive" .. spellID
+
+    EvokerAugOptions.args.offensiveBuffs.args.offensiveBuffList.args[optionKey] = {
+        order = order,
+        type = 'group',
+        name = spellName,
+        inline = true,
+        args = {
+            enabled = {
+                order = 1,
+                type = 'toggle',
+                name = spellName,
+                imageCoords = { 0.07, 0.93, 0.07, 0.93 },
+                image = iconID,
+                set = function(_, value)
+                    SetOffensiveBuffEnabled(spellID, value, isCustom)
+                    AceConfigRegistry:NotifyChange(addonName)
+                end,
+                get = function()
+                    return IsOffensiveBuffEnabled(spellID)
+                end,
+            },
+            tier = {
+                order = 2,
+                type = 'select',
+                name = "Tier",
+                values = OFFENSIVE_TIER_LABELS,
+                set = function(_, value)
+                    SetOffensiveBuffTier(spellID, value)
+                end,
+                get = function()
+                    local _, tier = GetOffensiveBuffDefinition(spellID)
+                    return tier or OFFENSIVE_TIER_MINOR
+                end,
+            },
+        },
+    }
+
+    if isCustom then
+        EvokerAugOptions.args.offensiveBuffs.args.offensiveBuffList.args[optionKey].args.remove = {
+            order = 3,
+            type = 'execute',
+            name = "Remove",
+            func = function()
+                SetOffensiveBuffEnabled(spellID, false, true)
+                EvokerAugOptions.args.offensiveBuffs.args.offensiveBuffList.args[optionKey] = nil
+                AceConfigRegistry:NotifyChange(addonName)
+            end,
+        }
+    end
+end
+
 local function AddSavedCustomSpellOptions()
     EnsureTrackedBuffStateTables()
     for spellId, savedName in pairs(addon.db.profile.customBuffList) do
@@ -1534,12 +1935,35 @@ local function AddSavedCustomSpellOptions()
     end
 end
 
+local function AddSavedCustomOffensiveBuffOptions()
+    EnsureOffensiveBuffStateTables()
+    for spellID, definition in pairs(addon.db.profile.offensiveBuffs.custom) do
+        local numericSpellID = GetCleanPositiveSpellID(spellID)
+        if numericSpellID then
+            AddOffensiveBuffOption(numericSpellID, definition, true, 100000 + numericSpellID)
+        end
+    end
+end
+
 local function SpellListAdd(spellId)
     if spellId then
         local Spell = C_Spell.GetSpellInfo(spellId)
         if Spell and Spell.name then
             SetTrackedBuff(spellId, Spell.name, true, true)
             AddTrackedBuffOption(spellId, Spell.name, Spell.iconID, true, spellId)
+            AceConfigRegistry:NotifyChange(addonName)
+        end
+    end
+end
+
+local function OffensiveBuffListAdd(spellID)
+    spellID = GetCleanPositiveSpellID(spellID)
+    if spellID then
+        local Spell = C_Spell.GetSpellInfo(spellID)
+        if Spell and Spell.name then
+            local definition = { name = Spell.name, tier = OFFENSIVE_TIER_MINOR }
+            SetCustomOffensiveBuff(spellID, Spell.name, OFFENSIVE_TIER_MINOR)
+            AddOffensiveBuffOption(spellID, definition, true, 100000 + spellID)
             AceConfigRegistry:NotifyChange(addonName)
         end
     end
@@ -2153,6 +2577,62 @@ local function GetOptions()
                     }
                 },
             },
+            offensiveBuffs = {
+                order = 6,
+                name = "Offensive Buffs",
+                type = "group",
+                args = {
+                    offensiveBuffInfo = {
+                        order = 1,
+                        type = "description",
+                        name = "Highlight party members when visible offensive buffs are active.",
+                    },
+                    enabled = {
+                        order = 2,
+                        type = 'toggle',
+                        name = "Enable Offensive Highlights",
+                        get = function()
+                            EnsureOffensiveBuffStateTables()
+                            return addon.db.profile.offensiveBuffs.enabled
+                        end,
+                        set = function(_, value)
+                            EnsureOffensiveBuffStateTables()
+                            addon.db.profile.offensiveBuffs.enabled = value
+                            RefreshOffensiveBuffHighlightsForAllSelectedUnits()
+                        end,
+                    },
+                    spellId = {
+                        order = 3,
+                        type = "input",
+                        name = "Custom Offensive Spell ID",
+                        desc = "Add a visible helpful aura spell ID to highlight as a minor offensive buff.",
+                        validate = function(_, value)
+                            local num = tonumber(value)
+                            if num then
+                                return true
+                            else
+                                return "Please enter a number"
+                            end
+                        end,
+                        set = function(_, state)
+                            OffensiveBuffListAdd(tonumber(state))
+                        end,
+                    },
+                    offensiveBuffList = {
+                        type = 'group',
+                        name = 'Offensive Buff List',
+                        inline = true,
+                        order = 4,
+                        args = {
+                            h1 = {
+                                type = 'header',
+                                name = 'Offensive Buff List',
+                                order = 1,
+                            },
+                        },
+                    },
+                },
+            },
             profiles = profiles,
         },
     }
@@ -2162,6 +2642,10 @@ local function GetOptions()
         orderNumber = orderNumber + 1
     end
     AddSavedCustomSpellOptions()
+    for spellID, definition in pairs(addon.OffensiveBuffList or {}) do
+        AddOffensiveBuffOption(spellID, definition, false, spellID)
+    end
+    AddSavedCustomOffensiveBuffOptions()
 
     orderNumber = 2
     for k, v in pairs(favList) do
@@ -2216,6 +2700,7 @@ local function ClearSelectedFrameState()
     for i = #selectedPlayerFrames, 1, -1 do
         local frame = selectedPlayerFrames[i]
         ClearBuffIcons(frame)
+        ApplyOffensiveBuffVisualState(frame, OFFENSIVE_STATE_NONE)
         frame:Hide()
         frame:ClearAllPoints()
         frame:SetParent(nil)
@@ -2453,6 +2938,9 @@ function addon:OnEnable() -- PLAYER_LOGIN
                 for _, instance in ipairs(info.removedAuraInstanceIDs) do
                     RemoveBuffIcon(selectedPlayerFrames[frameIndex], instance)
                 end
+            end
+            if selectedPlayerFrames[frameIndex] then
+                RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)
             end
         elseif event == "UNIT_FLAGS" then
             if unit ~= "player" then
