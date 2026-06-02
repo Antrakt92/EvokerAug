@@ -52,22 +52,6 @@ speculative cleanup ideas without a concrete failure path.
   table, nil menu payload, role change, nil `UNIT_AURA`, and stale callback
   generation.
 
-### EVA-T3-009: Bound mutable paths in local PowerShell tooling
-
-- Evidence: `scripts\package-local.ps1` accepts `OutputDirectory`, computes a
-  staging path, and recursively deletes `_staging`; the install script accepts
-  custom root/backup parameters for moving installed addon folders.
-- Current behavior: default usage is safe, but unusual absolute or parent-path
-  arguments are not explicitly constrained to the repo or intended AddOns root.
-- Impact: local tooling is easier to misuse during manual packaging/install
-  work.
-- Suggested fix direction: resolve final paths and assert destructive
-  staging/move targets stay under the intended repo output directory or WoW
-  AddOns root before deleting/moving.
-- Tests/verification: add script tests/dry-runs for default paths, absolute
-  output paths, parent-directory traversal, existing junction, and existing
-  folder backup.
-
 ## Parking
 
 ### EVA-P-001: Cache Ebon Might progress data if aura polling becomes measurable

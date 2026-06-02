@@ -640,6 +640,16 @@ def test_local_package_script_documents_expected_zip_surface():
         assert ignored in script
 
 
+def test_local_package_script_bounds_destructive_paths():
+    script = PACKAGE_SCRIPT.read_text(encoding="utf-8")
+    assert "function Resolve-ChildPath" in script
+    assert "function Assert-PathInsideRoot" in script
+    assert "$outputRoot = Resolve-ChildPath -BasePath $repoRoot -ChildPath $OutputDirectory" in script
+    assert 'Assert-PathInsideRoot -Path $outputRoot -RootPath $repoRoot -Label "OutputDirectory"' in script
+    assert 'Assert-PathInsideRoot -Path $stagingRoot -RootPath $outputRoot -Label "stagingRoot"' in script
+    assert 'Assert-PathInsideRoot -Path $zipPath -RootPath $outputRoot -Label "zipPath"' in script
+
+
 def test_removed_nested_vendor_metadata_stays_out_of_repo_and_packages():
     for path in [
         ROOT / "Libs" / "LibCustomGlow-1.0" / ".editorconfig",
@@ -660,3 +670,13 @@ def test_local_install_script_uses_backup_and_junction():
     assert "New-Item -ItemType Junction" in script
     assert "-Apply" in script
     assert "Resolve-Path" in script
+
+
+def test_local_install_script_bounds_move_and_junction_paths():
+    script = INSTALL_SCRIPT.read_text(encoding="utf-8")
+    assert "function Resolve-ChildPath" in script
+    assert "function Assert-PathInsideRoot" in script
+    assert "$backupRootPath = Resolve-ChildPath -BasePath $repoRoot -ChildPath $BackupRoot" in script
+    assert 'Assert-PathInsideRoot -Path $backupRootPath -RootPath $repoRoot -Label "BackupRoot"' in script
+    assert 'Assert-PathInsideRoot -Path $installedAddonPath -RootPath $addonsRoot -Label "installedAddonPath"' in script
+    assert 'Assert-PathInsideRoot -Path $backupPath -RootPath $backupRootPath -Label "backupPath"' in script

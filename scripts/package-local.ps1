@@ -5,13 +5,58 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Resolve-ChildPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BasePath,
+        [Parameter(Mandatory = $true)]
+        [string]$ChildPath
+    )
+
+    $candidate = if ([System.IO.Path]::IsPathRooted($ChildPath)) {
+        $ChildPath
+    } else {
+        Join-Path $BasePath $ChildPath
+    }
+
+    [System.IO.Path]::GetFullPath($candidate)
+}
+
+function Assert-PathInsideRoot {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath,
+        [Parameter(Mandatory = $true)]
+        [string]$Label
+    )
+
+    $rootFull = [System.IO.Path]::GetFullPath($RootPath).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    $pathFull = [System.IO.Path]::GetFullPath($Path).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    $rootPrefix = $rootFull + [System.IO.Path]::DirectorySeparatorChar
+
+    if (-not $pathFull.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "$Label must stay under $rootFull. Got: $pathFull"
+    }
+}
+
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
-$outputRoot = Join-Path $repoRoot $OutputDirectory
+$outputRoot = Resolve-ChildPath -BasePath $repoRoot -ChildPath $OutputDirectory
 $stagingRoot = Join-Path $outputRoot "_staging"
 $addonRoot = Join-Path $stagingRoot "EvokerAug"
 $defaultZipName = "EvokerAug-v1.0.24-midnight.1.zip"
 $zipName = if ($PSBoundParameters.ContainsKey("Version")) { "EvokerAug-$Version.zip" } else { $defaultZipName }
 $zipPath = Join-Path $outputRoot $zipName
+Assert-PathInsideRoot -Path $outputRoot -RootPath $repoRoot -Label "OutputDirectory"
+Assert-PathInsideRoot -Path $stagingRoot -RootPath $outputRoot -Label "stagingRoot"
+Assert-PathInsideRoot -Path $zipPath -RootPath $outputRoot -Label "zipPath"
 
 $ignoredDirectories = @(
     ".git",

@@ -83,6 +83,7 @@ v1.0.24-midnight.1
     - Core spell dropdown labels now use localized spell names, with a corrected Source of Magic fallback.
     - Package cleanup now keeps developer-only files and nested vendor metadata out of test/release zips.
     - Internal helper names and spell tables now stay out of the shared global namespace where practical.
+    - Local package/install scripts now reject custom paths outside their intended roots.
 
 v1.0.23
     - Fixed the problem of the frame appearing only in gray due to some situations.

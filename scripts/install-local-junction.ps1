@@ -6,6 +6,48 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+function Resolve-ChildPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$BasePath,
+        [Parameter(Mandatory = $true)]
+        [string]$ChildPath
+    )
+
+    $candidate = if ([System.IO.Path]::IsPathRooted($ChildPath)) {
+        $ChildPath
+    } else {
+        Join-Path $BasePath $ChildPath
+    }
+
+    [System.IO.Path]::GetFullPath($candidate)
+}
+
+function Assert-PathInsideRoot {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Path,
+        [Parameter(Mandatory = $true)]
+        [string]$RootPath,
+        [Parameter(Mandatory = $true)]
+        [string]$Label
+    )
+
+    $rootFull = [System.IO.Path]::GetFullPath($RootPath).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    $pathFull = [System.IO.Path]::GetFullPath($Path).TrimEnd(
+        [System.IO.Path]::DirectorySeparatorChar,
+        [System.IO.Path]::AltDirectorySeparatorChar
+    )
+    $rootPrefix = $rootFull + [System.IO.Path]::DirectorySeparatorChar
+
+    if (-not $pathFull.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "$Label must stay under $rootFull. Got: $pathFull"
+    }
+}
+
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $tocPath = Join-Path $repoRoot "EvokerAug.toc"
 if (-not (Test-Path -LiteralPath $tocPath)) {
@@ -19,9 +61,12 @@ if (-not (Test-Path -LiteralPath $addonsRoot)) {
 }
 
 $installedAddonPath = Join-Path $addonsRoot "EvokerAug"
-$backupRootPath = Join-Path $repoRoot $BackupRoot
+$backupRootPath = Resolve-ChildPath -BasePath $repoRoot -ChildPath $BackupRoot
 $timestamp = Get-Date -Format "yyyyMMdd-HHmmss"
 $backupPath = Join-Path $backupRootPath "EvokerAug-installed-$timestamp"
+Assert-PathInsideRoot -Path $installedAddonPath -RootPath $addonsRoot -Label "installedAddonPath"
+Assert-PathInsideRoot -Path $backupRootPath -RootPath $repoRoot -Label "BackupRoot"
+Assert-PathInsideRoot -Path $backupPath -RootPath $backupRootPath -Label "backupPath"
 
 Write-Output "Source: $repoRoot"
 Write-Output "Install link: $installedAddonPath"
