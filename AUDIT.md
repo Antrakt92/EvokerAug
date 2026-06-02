@@ -140,18 +140,6 @@ speculative cleanup ideas without a concrete failure path.
 - Tests/verification: rapidly enter/leave a party instance and confirm only the
   latest context affects frames.
 
-### EVA-T2-007: Handle full `UNIT_AURA` invalidations
-
-- Evidence: the `UNIT_AURA` handler returns when `info == nil`; full rescans
-  currently happen only when a player frame is created via `AddBuffIcons`.
-- Current behavior: only delta lists are processed.
-- Impact: if Retail sends a full aura invalidation without delta IDs, tracked
-  buff icons/timers can remain stale or fail to appear.
-- Suggested fix direction: when update info is nil, reconcile the selected unit
-  by clearing tracked icons and rescanning current tracked auras.
-- Tests/verification: simulate a nil `UNIT_AURA` update and confirm icons match
-  current aura state; in-game verify `/reload` and aura refresh behavior.
-
 ### EVA-T2-008: Fix instance visibility truth table for raid and Mythic+ toggles
 
 - Evidence: `PLAYER_ENTERING_WORLD` uses `if not showRaid ... elseif not
@@ -226,20 +214,6 @@ speculative cleanup ideas without a concrete failure path.
   come from the curated changelog.
 
 ## T3 Medium / Low
-
-### EVA-T3-001: Validate aura duration before creating one-second tickers
-
-- Evidence: `AddBuffIcon` creates a `C_Timer.NewTicker` after call sites check
-  `expirationTime`, but `duration` flows into `starttimestamp` without the same
-  clean-positive guard.
-- Current behavior: nil/secret/non-positive duration makes the ticker return
-  every second with blank text until aura removal or frame cleanup.
-- Impact: malformed aura payloads can create stale timer work and blank buff
-  text.
-- Suggested fix direction: validate both expiration and duration before ticker
-  creation, or cancel/remove/rescan when duration is invalid.
-- Tests/verification: static tests for duration guards at every `AddBuffIcon`
-  call site; in-game aura add/update/removal check during combat.
 
 ### EVA-T3-002: Harden saved frame position loading and saving
 

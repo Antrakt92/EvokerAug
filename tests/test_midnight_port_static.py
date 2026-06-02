@@ -145,6 +145,22 @@ def test_buff_icon_removal_guards_missing_text_and_ticker():
     assert "if text.ticker then" in body
 
 
+def test_aura_icons_require_clean_expiration_and_duration():
+    add_body = function_body(CORE, "AddBuffIcon")
+    assert "not IsCleanPositiveNumber(timestamp)" in add_body
+    assert "not IsCleanPositiveNumber(startTimer)" in add_body
+
+    unit_aura_body = CORE[CORE.index('elseif event == "UNIT_AURA"') :]
+    unit_aura_body = unit_aura_body[: unit_aura_body.index('elseif event == "UNIT_FLAGS"')]
+    assert "ReconcileTrackedAurasForUnit(unit)" in unit_aura_body
+    assert "info == nil" in unit_aura_body
+    assert "info.isFullUpdate" in unit_aura_body
+
+    reconcile_body = function_body(CORE, "ReconcileTrackedAurasForUnit")
+    assert "ClearBuffIcons(selectedPlayerFrames[frameIndex])" in reconcile_body
+    assert "AddBuffIcons(selectedPlayerFrames[frameIndex], unit)" in reconcile_body
+
+
 def test_custom_spell_options_use_spell_name_and_icon_texture():
     classes_body = function_body(CORE, "GetClasses")
     assert "if spell and spell.name and spell.iconID then" in classes_body
@@ -199,6 +215,24 @@ def test_prescience_bar_uses_class_fill_over_dark_track():
 
     options_body = function_body(CORE, "GetOptions")
     assert "RefreshPrescienceBarFill(frame)" in options_body
+
+
+def test_distance_dimming_avoids_secure_frame_alpha_mutations():
+    distance_body = function_body(CORE, "CheckDistance")
+    assert "playerFrame:SetAlpha" not in distance_body
+    assert "ApplyPlayerFrameVisualAlpha(playerFrame" in distance_body
+
+    alpha_body = function_body(CORE, "ApplyPlayerFrameVisualAlpha")
+    assert "playerFrame.visualAlpha = alpha" in alpha_body
+    assert "playerFrame.texture:SetAlpha(alpha)" in alpha_body
+    assert "playerFrame.playerNameText:SetAlpha(alpha)" in alpha_body
+    assert 'string.match(tostring(key), "Text$")' in alpha_body
+    assert "region:SetAlpha(alpha)" in alpha_body
+    assert "playerFrame:SetAlpha" not in alpha_body
+
+    add_body = function_body(CORE, "AddBuffIcon")
+    assert "local visualAlpha = playerFrame.visualAlpha or 0.9" in add_body
+    assert ":SetAlpha(visualAlpha)" in add_body
 
 
 def test_settings_frame_mutations_are_combat_gated():

@@ -321,6 +321,32 @@ local function RefreshPrescienceBarFill(playerFrame)
     ApplyPrescienceBarFill(playerFrame, nil, nil)
 end
 
+local function ApplyPlayerFrameVisualAlpha(playerFrame, alpha)
+    if not playerFrame then
+        return
+    end
+
+    playerFrame.visualAlpha = alpha
+
+    if playerFrame.texture then
+        playerFrame.texture:SetAlpha(alpha)
+    end
+    if playerFrame.playerNameText then
+        playerFrame.playerNameText:SetAlpha(alpha)
+    end
+
+    local buff = playerFrame["buff"]
+    if buff then
+        for key, region in pairs(buff) do
+            if type(region) == "table" and region.SetAlpha then
+                if key ~= "xOffset" or string.match(tostring(key), "Text$") then
+                    region:SetAlpha(alpha)
+                end
+            end
+        end
+    end
+end
+
 local function ClearBuffIcons(playerFrame)
     local buff = playerFrame and playerFrame["buff"]
     if not buff then
@@ -398,6 +424,10 @@ local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTi
     if playerFrame == nil then
         return
     end
+    if not IsCleanPositiveNumber(timestamp) or not IsCleanPositiveNumber(startTimer) then
+        return
+    end
+
     if playerFrame["buff"][auraInstanceID] then
         if playerFrame["buff"][auraInstanceID .. "Text"] then
             playerFrame["buff"][auraInstanceID .. "Text"].timestamp = timestamp
@@ -422,6 +452,9 @@ local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTi
     playerFrame["buff"][auraInstanceID .. "Text"]:SetFont("Fonts\\ARIALN.TTF", addon.db.profile.spellIconTextSize,
         "OUTLINE")
     playerFrame["buff"][auraInstanceID .. "Text"]:Show()
+    local visualAlpha = playerFrame.visualAlpha or 0.9
+    playerFrame["buff"][auraInstanceID]:SetAlpha(visualAlpha)
+    playerFrame["buff"][auraInstanceID .. "Text"]:SetAlpha(visualAlpha)
     playerFrame["buff"][auraInstanceID .. "Text"].timestamp = timestamp
     playerFrame["buff"][auraInstanceID .. "Text"].starttimestamp = startTimer
     if icon == PRESCIENCE_ICON_ID then
@@ -493,9 +526,9 @@ local function CheckDistance(playerFrame)
     if unit ~= "player" and UnitExists(unit) then
         local inRange = UnitInRange(unit)
         if inRange then
-            playerFrame:SetAlpha(0.9);
+            ApplyPlayerFrameVisualAlpha(playerFrame, 0.9)
         else
-            playerFrame:SetAlpha(0.3);
+            ApplyPlayerFrameVisualAlpha(playerFrame, 0.3)
         end
     end
 end
@@ -637,7 +670,6 @@ local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitInde
     local classR, classG, classB = GetClassRGB(class)
     selectedPlayerFrames[frameIndex]:SetBackdropColor(0.08, 0.08, 0.08, 0.82)
     selectedPlayerFrames[frameIndex].texture:SetVertexColor(classR, classG, classB, 0.9)
-    CheckDistance(selectedPlayerFrames[frameIndex])
 
     selectedPlayerFrames[frameIndex].texture:SetPoint('TOP', selectedPlayerFrames[frameIndex], 'TOP')
     selectedPlayerFrames[frameIndex].texture:SetPoint('BOTTOM', selectedPlayerFrames[frameIndex], 'BOTTOM')
@@ -653,6 +685,7 @@ local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitInde
     selectedPlayerFrames[frameIndex].playerNameText:SetText(playerName)
     selectedPlayerFrames[frameIndex].playerNameText:SetJustifyH("CENTER")
     selectedPlayerFrames[frameIndex].playerNameText:SetJustifyV("MIDDLE")
+    CheckDistance(selectedPlayerFrames[frameIndex])
 
     SortType()
 
@@ -668,6 +701,16 @@ local function GetPlayerFrameIndexByUnit(unit)
         end
     end
     return nil
+end
+
+local function ReconcileTrackedAurasForUnit(unit)
+    local frameIndex = GetPlayerFrameIndexByUnit(unit)
+    if not frameIndex or not selectedPlayerFrames[frameIndex] then
+        return
+    end
+
+    ClearBuffIcons(selectedPlayerFrames[frameIndex])
+    AddBuffIcons(selectedPlayerFrames[frameIndex], unit)
 end
 
 local function GetPlayerFrameIndexByName(name)
@@ -1697,7 +1740,8 @@ function addon:OnEnable() -- PLAYER_LOGIN
                 end
             end
         elseif event == "UNIT_AURA" then
-            if info == nil then
+            if info == nil or info.isFullUpdate then
+                ReconcileTrackedAurasForUnit(unit)
                 return
             end
             local frameIndex = GetPlayerFrameIndexByUnit(unit)

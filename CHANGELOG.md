@@ -17,6 +17,8 @@
 - Fixed local package output so backup folders are excluded from manual test zips.
 - Changed the default frame state to unlocked so new profiles can position the frame immediately, then lock it from the right-click menu.
 - Improved the Prescience Bar so party rows use a dark track with a class-coloured fill that shrinks as Prescience expires.
+- Hardened combat aura updates by reconciling full `UNIT_AURA` refreshes and rejecting malformed timer payloads.
+- Moved range dimming off secure unit-button alpha changes so combat tracking only updates child visuals.
 
 ### Added
 
