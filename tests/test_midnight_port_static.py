@@ -470,6 +470,10 @@ def test_instance_visibility_uses_shared_policy():
     assert "RefreshRuntimeFrames" in CORE
     assert "elseif not addon.db.profile.showMythic" not in CORE
 
+    runtime_body = function_body(CORE, "IsRuntimeVisibilityAllowed")
+    assert 'GetUnitClassToken("player")' in runtime_body
+    assert '"EVOKER"' in runtime_body
+
     visibility_body = function_body(CORE, "ApplyInstanceVisibilityPolicy")
     assert "ShouldShowForInstanceType(instanceType)" in visibility_body
     assert "IsRuntimeVisibilityAllowed()" in visibility_body
@@ -482,10 +486,24 @@ def test_instance_visibility_uses_shared_policy():
     regen_body = regen_body[: regen_body.index('elseif event == "PLAYER_ENTERING_WORLD"')]
     assert "if not ApplyInstanceVisibilityPolicy() then" in regen_body
 
+    group_body = CORE[CORE.index('if event == "GROUP_ROSTER_UPDATE"') :]
+    group_body = group_body[: group_body.index('elseif event == "PLAYER_REGEN_DISABLED"')]
+    assert "RefreshRuntimeFrames()" in group_body
+    assert "GroupUpdate()" not in group_body
+    assert "AddFrameFavorite()" not in group_body
+
+    entering_body = CORE[CORE.index('elseif event == "PLAYER_ENTERING_WORLD"') :]
+    entering_body = entering_body[: entering_body.index('elseif event == "PLAYER_SPECIALIZATION_CHANGED"')]
+    party_timer_body = entering_body[entering_body.index('if instanceType == "party"') :]
+    party_timer_body = party_timer_body[: party_timer_body.index('elseif instanceType == "none"')]
+    assert "RefreshRuntimeFrames()" in party_timer_body
+    assert "FrameAutoFill()" not in party_timer_body
+
 
 def test_mythic_visibility_and_auto_fill_options_refresh_runtime_frames():
     refresh_body = function_body(CORE, "RefreshRuntimeFrames")
     assert "ApplyInstanceVisibilityPolicy()" in refresh_body
+    assert "GroupUpdate()" in refresh_body
     assert "AddFrameFavorite()" in refresh_body
     assert "if addon.db.profile.autoFrameFill then" in refresh_body
     assert "FrameAutoFill()" in refresh_body

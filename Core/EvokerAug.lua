@@ -27,6 +27,7 @@ local instanceContextGeneration = 0
 local CheckShoworHide
 local HideAllSubFrames
 local EnableAllFrame
+local GetUnitClassToken
 local GetHomePartyInfos
 local RightMenu
 local IsFavorite
@@ -83,6 +84,10 @@ local function ShouldShowForInstanceType(instanceType)
 end
 
 local function IsRuntimeVisibilityAllowed()
+    if GetUnitClassToken("player") ~= "EVOKER" then
+        return false
+    end
+
     local currentSpec = GetSpecialization()
     if currentSpec and currentSpec ~= 3 then
         return false
@@ -92,7 +97,7 @@ local function IsRuntimeVisibilityAllowed()
     return ShouldShowForInstanceType(instanceType)
 end
 
-local function GetUnitClassToken(unit)
+GetUnitClassToken = function(unit)
     local _, classToken = UnitClass(unit)
     return classToken
 end
@@ -1252,6 +1257,7 @@ local function RefreshRuntimeFrames()
         return
     end
 
+    GroupUpdate()
     AddFrameFavorite()
     if addon.db.profile.autoFrameFill then
         FrameAutoFill()
@@ -2140,9 +2146,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
 
     selectedPlayerFrameContainer:SetScript("OnEvent", function(self, event, unit, info)
         if event == "GROUP_ROSTER_UPDATE" then
-            GroupUpdate()
-            --- Favorite Check
-            AddFrameFavorite()
+            RefreshRuntimeFrames()
         elseif event == "PLAYER_REGEN_DISABLED" then
             combatLockdown = true
         elseif event == "PLAYER_LOGOUT" then
@@ -2180,7 +2184,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
                         end
                         local size = GetNumGroupMembers()
                         if size > 0 then
-                            FrameAutoFill()
+                            RefreshRuntimeFrames()
                         end
                     end)
                 elseif instanceType == "none" then

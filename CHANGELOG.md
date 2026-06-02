@@ -39,6 +39,7 @@
 - Hardened local package/install scripts so custom paths cannot escape the intended repo or AddOns roots.
 - Updated README and TOC copy to describe the current Midnight Augmentation buff-tracker behavior.
 - Fixed Mythic+/raid visibility and Auto Frame Fill toggles so they refresh the current runtime frames immediately or queue safely during combat.
+- Fixed roster and delayed dungeon Auto Frame Fill refreshes so they respect Evoker/Augmentation and raid/Mythic+ visibility before creating frames.
 
 ### Added
 
