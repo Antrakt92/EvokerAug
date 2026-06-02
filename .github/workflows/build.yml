@@ -8,7 +8,30 @@ on:
       - '.github/**'
 
 jobs:
+  preflight:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install test tools
+        run: |
+          python -m pip install pytest==8.4.1
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+
+      - name: Run static regression checks
+        run: python -m pytest tests/test_midnight_port_static.py -q
+
+      - name: Check Lua syntax
+        run: luac5.1 -p Core/Config.lua Core/EvokerAug.lua Core/SpellList.lua
+
   packager:
+    needs: preflight
     runs-on: ubuntu-latest
 
     steps:

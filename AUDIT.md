@@ -17,24 +17,6 @@ speculative cleanup ideas without a concrete failure path.
 - Tests: current static regression checks, Lua syntax checks, and gaps where
   behavior needs a harness or in-game verification.
 
-## T1 Critical
-
-### EVA-T1-001: Gate public tag releases before BigWigs Packager uploads
-
-- Evidence: `.github/workflows/build.yml` publishes on `v*` tags through
-  BigWigs Packager; `tests/test_midnight_port_static.py` and `luac5.1` checks
-  exist locally but are not required by the workflow.
-- Current behavior: pushing a tag can package and upload to GitHub/CurseForge/
-  Wago/WoWInterface before static regressions, Lua syntax, or package-surface
-  checks run.
-- Impact: a broken Midnight port or dirty artifact can become a public release.
-- Suggested fix direction: add a pre-packager CI job for `python -m pytest`,
-  `luac5.1 -p Core\Config.lua Core\EvokerAug.lua Core\SpellList.lua`, and zip
-  surface checks; make the packager job depend on it.
-- Tests/verification: fail the workflow intentionally with a broken static
-  invariant and confirm no packager/upload step runs; then confirm a clean tag
-  reaches the packager.
-
 ## T2 High
 
 ### EVA-T2-001: Replace `buffList` default toggles with stable persisted state

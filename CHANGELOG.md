@@ -33,6 +33,7 @@
 
 - Added static regression checks for Midnight compatibility invariants.
 - Added local packaging support for reproducible manual test zips.
+- Added a release preflight CI gate before public packaging and uploads.
 
 ### Known limitations
 

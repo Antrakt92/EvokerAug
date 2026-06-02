@@ -8,6 +8,7 @@ CONFIG = (ROOT / "Core" / "Config.lua").read_text(encoding="utf-8")
 TOC = (ROOT / "EvokerAug.toc").read_text(encoding="utf-8")
 PKGMETA = (ROOT / ".pkgmeta").read_text(encoding="utf-8")
 GITIGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
+WORKFLOW = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
 CHANGELOG = ROOT / "CHANGELOG.md"
 PACKAGE_SCRIPT = ROOT / "scripts" / "package-local.ps1"
 INSTALL_SCRIPT = ROOT / "scripts" / "install-local-junction.ps1"
@@ -402,6 +403,16 @@ def test_packager_uses_curated_changelog_for_release_notes():
     assert re.search(r"(?m)^  filename: CHANGELOG\.md\s*$", PKGMETA)
     assert re.search(r"(?m)^  markup-type: markdown\s*$", PKGMETA)
     assert "# manual-changelog" not in PKGMETA
+
+
+def test_release_workflow_gates_packager_on_static_checks():
+    assert re.search(r"(?m)^  preflight:\s*$", WORKFLOW)
+    assert re.search(r"(?m)^  packager:\s*$", WORKFLOW)
+    assert re.search(r"(?m)^    needs: preflight\s*$", WORKFLOW)
+    assert "python -m pip install pytest" in WORKFLOW
+    assert "python -m pytest tests/test_midnight_port_static.py -q" in WORKFLOW
+    assert "sudo apt-get install -y lua5.1" in WORKFLOW
+    assert "luac5.1 -p Core/Config.lua Core/EvokerAug.lua Core/SpellList.lua" in WORKFLOW
 
 
 def test_local_package_script_documents_expected_zip_surface():
