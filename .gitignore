@@ -43,6 +43,7 @@ luac.out
 
 # Local package output
 dist/
+backups/
 
 # Python test cache
 .pytest_cache/

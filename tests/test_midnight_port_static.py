@@ -10,6 +10,7 @@ PKGMETA = (ROOT / ".pkgmeta").read_text(encoding="utf-8")
 GITIGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
 CHANGELOG = ROOT / "CHANGELOG.md"
 PACKAGE_SCRIPT = ROOT / "scripts" / "package-local.ps1"
+INSTALL_SCRIPT = ROOT / "scripts" / "install-local-junction.ps1"
 
 
 def function_body(source: str, name: str) -> str:
@@ -69,7 +70,9 @@ def test_packager_excludes_repo_only_files():
     assert "- scripts" in PKGMETA
     assert "- .github" in PKGMETA
     assert "- .pytest_cache" in PKGMETA
+    assert "- backups" in PKGMETA
     assert "dist/" in GITIGNORE
+    assert "backups/" in GITIGNORE
     assert ".pytest_cache/" in GITIGNORE
 
 
@@ -87,3 +90,15 @@ def test_local_package_script_documents_expected_zip_surface():
     assert "dist" in script
     for ignored in [".git", ".github", "tests", "scripts", ".pytest_cache", "dist", ".gitignore", ".pkgmeta"]:
         assert ignored in script
+
+
+def test_local_install_script_uses_backup_and_junction():
+    assert INSTALL_SCRIPT.exists()
+    script = INSTALL_SCRIPT.read_text(encoding="utf-8")
+    assert "C:\\Games\\World of Warcraft\\_retail_" in script
+    assert "Interface\\AddOns" in script
+    assert "backups" in script
+    assert "Move-Item" in script
+    assert "New-Item -ItemType Junction" in script
+    assert "-Apply" in script
+    assert "Resolve-Path" in script

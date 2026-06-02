@@ -7,6 +7,7 @@ ignore:
   - .github
   - .gitignore
   - .pytest_cache
+  - backups
 
 # manual-changelog:
 #   filename: CHANGELOG.md
