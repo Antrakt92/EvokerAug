@@ -9,6 +9,6 @@ ignore:
   - .pytest_cache
   - backups
 
-# manual-changelog:
-#   filename: CHANGELOG.md
-#   markup-type: markdown
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown

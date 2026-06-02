@@ -95,19 +95,6 @@ speculative cleanup ideas without a concrete failure path.
   populated immediately; copy a profile and confirm visible frame state updates;
   attempt reset in combat and confirm work is queued rather than forbidden.
 
-### EVA-T2-012: Wire curated changelog into release packaging
-
-- Evidence: `CHANGELOG.md` contains user-facing Midnight notes and known
-  limitations; `.pkgmeta` has `manual-changelog` commented out.
-- Current behavior: the packager may publish commit-derived or incomplete
-  release notes instead of the curated changelog.
-- Impact: public release surfaces may omit the Midnight caveats and verification
-  expectations.
-- Suggested fix direction: enable `.pkgmeta` `manual-changelog` for
-  `CHANGELOG.md`, or add an explicit release-note generation step.
-- Tests/verification: dry-run or tag-test packaging and confirm release notes
-  come from the curated changelog.
-
 ## T3 Medium / Low
 
 ### EVA-T3-002: Harden saved frame position loading and saving

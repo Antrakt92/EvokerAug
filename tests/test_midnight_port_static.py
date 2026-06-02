@@ -397,6 +397,13 @@ def test_midnight_release_has_source_changelog():
     assert "Midnight" in changelog
 
 
+def test_packager_uses_curated_changelog_for_release_notes():
+    assert re.search(r"(?m)^manual-changelog:\s*$", PKGMETA)
+    assert re.search(r"(?m)^  filename: CHANGELOG\.md\s*$", PKGMETA)
+    assert re.search(r"(?m)^  markup-type: markdown\s*$", PKGMETA)
+    assert "# manual-changelog" not in PKGMETA
+
+
 def test_local_package_script_documents_expected_zip_surface():
     assert PACKAGE_SCRIPT.exists()
     script = PACKAGE_SCRIPT.read_text(encoding="utf-8")
