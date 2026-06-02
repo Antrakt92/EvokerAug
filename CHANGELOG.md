@@ -32,6 +32,7 @@
 - Fixed incremental aura updates so disabled tracked buffs cannot reappear between full aura refreshes.
 - Fixed party-frame identity so same-name players from different realms no longer collapse into one frame.
 - Fixed profile reset, copy, and switch handling so active profiles apply through one combat-safe refresh path.
+- Fixed saved frame positions so invalid values fall back safely and the current position is saved on logout.
 
 ### Added
 

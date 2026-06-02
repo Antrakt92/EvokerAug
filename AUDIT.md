@@ -19,19 +19,6 @@ speculative cleanup ideas without a concrete failure path.
 
 ## T3 Medium / Low
 
-### EVA-T3-002: Harden saved frame position loading and saving
-
-- Evidence: `profile.positions` is loaded directly into `SetPoint`; drag-stop
-  writes raw `GetPoint()` returns; no defensive `PLAYER_LOGOUT` save exists.
-- Current behavior: corrupted or migrated SavedVariables with invalid point or
-  nil offsets can error during load/reset and strand the UI.
-- Impact: addon frame can become inaccessible after bad SavedVariables.
-- Suggested fix direction: add `LoadPosition`/`SavePosition` helpers with
-  allowed-point validation, numeric offset fallback, `GetPoint()` nil guard,
-  and logout save.
-- Tests/verification: corrupt `EvokerAugDB.profile.positions`, `/reload`, and
-  confirm fallback to defaults.
-
 ### EVA-T3-003: Localize core spell dropdown labels and fix hardcoded typo
 
 - Evidence: `Core\SpellList.lua::spell_list` hardcodes English macro labels and

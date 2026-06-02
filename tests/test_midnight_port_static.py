@@ -196,7 +196,7 @@ def test_profile_callbacks_use_single_combat_aware_apply_path():
     assert "if not CanMutateProtectedFrames() then" in apply_body
     assert "pendingActiveProfileApply = true" in apply_body
     assert "ClearSelectedFrameState()" in apply_body
-    assert "selectedPlayerFrameContainer:ClearAllPoints()" in apply_body
+    assert "LoadPosition(selectedPlayerFrameContainer)" in apply_body
     assert "selectedPlayerFrameContainer:RegisterEvent(\"PLAYER_ENTERING_WORLD\")" in apply_body
     assert "selectedPlayerFrameContainer:UnregisterEvent(\"PLAYER_ENTERING_WORLD\")" in apply_body
     assert "RegisterOmniCDFrameData()" in apply_body
@@ -390,6 +390,39 @@ def test_settings_frame_mutations_are_combat_gated():
 
     options_body = function_body(CORE, "GetOptions")
     assert "ApplyButtonHeight()" in options_body
+
+
+def test_saved_frame_position_is_sanitized_and_saved_on_logout():
+    assert "VALID_FRAME_POINTS" in CORE
+    assert "SanitizePosition" in CORE
+    assert "LoadPosition" in CORE
+    assert "SavePosition" in CORE
+
+    sanitize_body = function_body(CORE, "SanitizePosition")
+    assert "VALID_FRAME_POINTS[position.point]" in sanitize_body
+    assert 'point = "CENTER"' in sanitize_body
+    assert "type(position.xOffset) == \"number\"" in sanitize_body
+    assert "type(position.yOffset) == \"number\"" in sanitize_body
+
+    load_body = function_body(CORE, "LoadPosition")
+    assert "frame:ClearAllPoints()" in load_body
+    assert "frame:SetPoint(point, UIParent, point, xOffset, yOffset)" in load_body
+    assert "frame:SetUserPlaced(true)" in load_body
+
+    save_body = function_body(CORE, "SavePosition")
+    assert "local point, _, _, xOffset, yOffset = frame:GetPoint()" in save_body
+    assert "if not point then" in save_body
+    assert "SanitizePosition" in save_body
+
+    on_enable_body = function_body(CORE, "addon:OnEnable")
+    assert "LoadPosition(selectedPlayerFrameContainer)" in on_enable_body
+    assert 'selectedPlayerFrameContainer:RegisterEvent("PLAYER_LOGOUT")' in on_enable_body
+    assert "SavePosition(selectedPlayerFrameContainer)" in on_enable_body
+    assert "self.db.profile.positions.point, self.db.profile.positions.xOffset" not in on_enable_body
+
+    apply_body = function_body(CORE, "ApplyActiveProfile")
+    assert "LoadPosition(selectedPlayerFrameContainer)" in apply_body
+    assert "addon.db.profile.positions.point, addon.db.profile.positions.xOffset" not in apply_body
 
 
 def test_addon_compartment_and_context_menu_hooks_are_guarded():

@@ -24,6 +24,17 @@ local PLAYER_FRAME_WIDTH = 150
 local pendingProtectedFrameRefresh = false
 local pendingActiveProfileApply = false
 local instanceContextGeneration = 0
+local VALID_FRAME_POINTS = {
+    TOPLEFT = true,
+    TOP = true,
+    TOPRIGHT = true,
+    LEFT = true,
+    CENTER = true,
+    RIGHT = true,
+    BOTTOMLEFT = true,
+    BOTTOM = true,
+    BOTTOMRIGHT = true,
+}
 
 local function IsCleanNumber(value)
     return type(value) == "number" and not issecretvalue(value)
@@ -495,6 +506,53 @@ end
 local function GetUnitIdentity(unit)
     local name, realm = UnitName(unit)
     return BuildIdentityKey(name, realm)
+end
+
+local function SanitizePosition(position)
+    position = type(position) == "table" and position or {}
+    local point = position.point
+    if not VALID_FRAME_POINTS[position.point] then
+        point = "CENTER"
+    end
+
+    local xOffset = type(position.xOffset) == "number" and position.xOffset or 0
+    local yOffset = type(position.yOffset) == "number" and position.yOffset or 0
+    return point, xOffset, yOffset
+end
+
+local function LoadPosition(frame)
+    addon.db.profile.positions = addon.db.profile.positions or {}
+    local point, xOffset, yOffset = SanitizePosition(addon.db.profile.positions)
+    addon.db.profile.positions.point = point
+    addon.db.profile.positions.xOffset = xOffset
+    addon.db.profile.positions.yOffset = yOffset
+
+    frame:ClearAllPoints()
+    frame:SetPoint(point, UIParent, point, xOffset, yOffset)
+    if frame.SetUserPlaced then
+        frame:SetUserPlaced(true)
+    end
+end
+
+local function SavePosition(frame)
+    if not frame or not addon.db or not addon.db.profile then
+        return
+    end
+
+    local point, _, _, xOffset, yOffset = frame:GetPoint()
+    if not point then
+        return
+    end
+
+    addon.db.profile.positions = addon.db.profile.positions or {}
+    local savedPoint, savedXOffset, savedYOffset = SanitizePosition({
+        point = point,
+        xOffset = xOffset,
+        yOffset = yOffset,
+    })
+    addon.db.profile.positions.point = savedPoint
+    addon.db.profile.positions.xOffset = savedXOffset
+    addon.db.profile.positions.yOffset = savedYOffset
 end
 
 local function GetClassRGB(class)
@@ -1941,9 +1999,7 @@ local function ApplyActiveProfile()
     end
 
     ClearSelectedFrameState()
-    selectedPlayerFrameContainer:ClearAllPoints()
-    selectedPlayerFrameContainer:SetPoint(addon.db.profile.positions.point, addon.db.profile.positions.xOffset,
-        addon.db.profile.positions.yOffset)
+    LoadPosition(selectedPlayerFrameContainer)
 
     if addon.db.profile.autoFrameFill then
         selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -2005,8 +2061,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
 
     selectedPlayerFrameContainer = CreateFrame("Frame", "EvokerAug", UIParent,
         BackdropTemplateMixin and "BackdropTemplate")
-    selectedPlayerFrameContainer:SetPoint(self.db.profile.positions.point, self.db.profile.positions.xOffset,
-        self.db.profile.positions.yOffset)
+    LoadPosition(selectedPlayerFrameContainer)
     selectedPlayerFrameContainer:SetSize(200, 20)
     selectedPlayerFrameContainer:SetMovable(true)
     selectedPlayerFrameContainer:EnableMouse(true)
@@ -2017,6 +2072,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
     selectedPlayerFrameContainer:RegisterEvent("UNIT_AURA")
     selectedPlayerFrameContainer:RegisterEvent("UNIT_FLAGS")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+    selectedPlayerFrameContainer:RegisterEvent("PLAYER_LOGOUT")
     if addon.db.profile.autoFrameFill then
         selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
     end
@@ -2040,10 +2096,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
 
     selectedPlayerFrameContainer:SetScript("OnDragStop", function(sel)
         sel:StopMovingOrSizing()
-        local x, _, _, l, p = selectedPlayerFrameContainer:GetPoint()
-        self.db.profile.positions.point = x
-        self.db.profile.positions.xOffset = l
-        self.db.profile.positions.yOffset = p
+        SavePosition(selectedPlayerFrameContainer)
     end)
 
     selectedPlayerFrameContainer:SetScript("OnEvent", function(self, event, unit, info)
@@ -2053,6 +2106,8 @@ function addon:OnEnable() -- PLAYER_LOGIN
             AddFrameFavorite()
         elseif event == "PLAYER_REGEN_DISABLED" then
             combatLockdown = true
+        elseif event == "PLAYER_LOGOUT" then
+            SavePosition(selectedPlayerFrameContainer)
         elseif event == "PLAYER_REGEN_ENABLED" then
             combatLockdown = false
             if pendingActiveProfileApply then
