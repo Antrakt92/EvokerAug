@@ -109,33 +109,6 @@ speculative cleanup ideas without a concrete failure path.
   populated immediately; copy a profile and confirm visible frame state updates;
   attempt reset in combat and confirm work is queued rather than forbidden.
 
-### EVA-T2-009: Make the settings Hide Frame control a real visibility toggle
-
-- Evidence: `frameHide` getter returns whether the container is shown, but its
-  setter always calls `HideAllSubFrames`.
-- Current behavior: the Hide Frame option is an inverted one-way toggle.
-- Impact: users can get confusing options UI and cannot use the setting itself
-  to show the frame again.
-- Suggested fix direction: make the option either an execute action or a real
-  show/hide toggle using `value`.
-- Tests/verification: `/aug` toggle off/on should hide/show predictably.
-
-### EVA-T2-010: Apply buff icon layout settings coherently to existing frames
-
-- Evidence: `AddBuffIcon`/`RepositionBuffIcons` advance icon offsets by
-  `buttonHeight` while icon textures use `spellIconSize`; icon-size changes
-  resize existing icons but do not reposition them.
-- Current behavior: icon size/frame height combinations can cause overlap or
-  large gaps, and resizing active icons can leave old spacing until buffs are
-  removed/re-added.
-- Impact: visible buff icons can become misleading or visually broken after
-  settings changes.
-- Suggested fix direction: add a combat-aware apply helper for icon size, icon
-  text size, and icon spacing; space icons by `spellIconSize` or an explicit
-  spacing setting and call `RepositionBuffIcons` after icon-size changes.
-- Tests/verification: vary frame height/icon size with multiple buffs active
-  and confirm icons remain evenly spaced.
-
 ### EVA-T2-012: Wire curated changelog into release packaging
 
 - Evidence: `CHANGELOG.md` contains user-facing Midnight notes and known

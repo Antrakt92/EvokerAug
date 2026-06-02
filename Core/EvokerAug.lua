@@ -309,7 +309,7 @@ local function RepositionBuffIcons(playerFrame)
     for k, icon in pairs(playerFrame["buff"]) do
         if type(icon) == "table" and not string.match(k, "Text$") then
             icon:SetPoint("LEFT", playerFrame, "RIGHT", playerFrame["buff"].xOffset, 0)
-            playerFrame["buff"].xOffset = playerFrame["buff"].xOffset + addon.db.profile.buttonHeight
+            playerFrame["buff"].xOffset = playerFrame["buff"].xOffset + addon.db.profile.spellIconSize
         end
     end
 end
@@ -524,7 +524,7 @@ local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTi
             text:SetText(nil)
         end
     end)
-    playerFrame["buff"].xOffset = playerFrame["buff"].xOffset + addon.db.profile.buttonHeight
+    playerFrame["buff"].xOffset = playerFrame["buff"].xOffset + addon.db.profile.spellIconSize
 
     if spellID == 361022 then
         playerFrame["buff"][auraInstanceID].glow = true
@@ -663,6 +663,24 @@ local function ApplyButtonHeight()
         RefreshPrescienceBarFill(frame)
     end
     SortType()
+end
+
+local function ApplySpellIconSize()
+    if not CanMutateProtectedFrames() then
+        MarkProtectedFrameRefreshPending()
+        return
+    end
+
+    for _, frame in ipairs(selectedPlayerFrames) do
+        if frame["buff"] then
+            for k2, v2 in pairs(frame["buff"]) do
+                if type(v2) == "table" and not string.match(k2, "Text$") then
+                    v2:SetSize(addon.db.profile.spellIconSize, addon.db.profile.spellIconSize)
+                end
+            end
+            RepositionBuffIcons(frame)
+        end
+    end
 end
 
 local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitIndex, unittt)
@@ -1137,16 +1155,7 @@ local function GetOptions()
                         get = function() return addon.db.profile.spellIconSize end,
                         set = function(info, value)
                             addon.db.profile.spellIconSize = value
-
-                            for k, v in pairs(selectedPlayerFrames) do
-                                if v["buff"] then
-                                    for k2, v2 in pairs(selectedPlayerFrames[k]["buff"]) do
-                                        if type(v2) == "table" and not string.match(k2, "Text$") then
-                                            v2:SetSize(addon.db.profile.spellIconSize, addon.db.profile.spellIconSize)
-                                        end
-                                    end
-                                end
-                            end
+                            ApplySpellIconSize()
                         end,
                         order = 16,
                     },
@@ -1195,8 +1204,8 @@ local function GetOptions()
                     frameHide = {
                         order = 19,
                         type = 'toggle',
-                        name = "Hide Frame",
-                        desc = "Hide the frame",
+                        name = "Show Frame",
+                        desc = "Show or hide the frame",
                         get = function()
                             if not selectedPlayerFrameContainer then
                                 return false
@@ -1204,7 +1213,11 @@ local function GetOptions()
                             return selectedPlayerFrameContainer:IsShown()
                         end,
                         set = function(info, value)
-                            HideAllSubFrames()
+                            if value then
+                                EnableAllFrame()
+                            else
+                                HideAllSubFrames()
+                            end
                         end,
                     },
                     autoFrame = {
@@ -1744,6 +1757,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
                     FrameAutoFill()
                 end
                 ApplyButtonHeight()
+                ApplySpellIconSize()
                 CreateProgressBar()
             end
         elseif event == "PLAYER_ENTERING_WORLD" then

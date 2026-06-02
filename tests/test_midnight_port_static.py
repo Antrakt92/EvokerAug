@@ -227,6 +227,28 @@ def test_prescience_bar_uses_class_fill_over_dark_track():
     assert "RefreshPrescienceBarFill(frame)" in options_body
 
 
+def test_buff_icon_spacing_tracks_icon_size_changes():
+    reposition_body = function_body(CORE, "RepositionBuffIcons")
+    assert "addon.db.profile.spellIconSize" in reposition_body
+    assert "addon.db.profile.buttonHeight" not in reposition_body
+
+    add_body = function_body(CORE, "AddBuffIcon")
+    assert 'playerFrame["buff"].xOffset + addon.db.profile.spellIconSize' in add_body
+
+    assert "ApplySpellIconSize" in CORE
+    apply_body = function_body(CORE, "ApplySpellIconSize")
+    assert "CanMutateProtectedFrames()" in apply_body
+    assert "v2:SetSize(addon.db.profile.spellIconSize, addon.db.profile.spellIconSize)" in apply_body
+    assert "RepositionBuffIcons(frame)" in apply_body
+
+    options_body = function_body(CORE, "GetOptions")
+    assert "ApplySpellIconSize()" in options_body
+
+    regen_body = CORE[CORE.index('elseif event == "PLAYER_REGEN_ENABLED"') :]
+    regen_body = regen_body[: regen_body.index('elseif event == "PLAYER_ENTERING_WORLD"')]
+    assert "ApplySpellIconSize()" in regen_body
+
+
 def test_distance_dimming_avoids_secure_frame_alpha_mutations():
     distance_body = function_body(CORE, "CheckDistance")
     assert "playerFrame:SetAlpha" not in distance_body
@@ -297,6 +319,15 @@ def test_instance_visibility_uses_shared_policy():
     regen_body = CORE[CORE.index('elseif event == "PLAYER_REGEN_ENABLED"') :]
     regen_body = regen_body[: regen_body.index('elseif event == "PLAYER_ENTERING_WORLD"')]
     assert "if not ApplyInstanceVisibilityPolicy() then" in regen_body
+
+
+def test_frame_visibility_option_uses_toggle_value():
+    frame_hide_section = CORE[CORE.index("frameHide = {") : CORE.index("autoFrame = {")]
+    assert 'name = "Show Frame"' in frame_hide_section
+    assert "if value then" in frame_hide_section
+    assert "EnableAllFrame()" in frame_hide_section
+    assert "else" in frame_hide_section
+    assert "HideAllSubFrames()" in frame_hide_section
 
 
 def test_context_menu_payload_is_guarded_before_favorite_action():

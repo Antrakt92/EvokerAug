@@ -23,6 +23,8 @@
 - Fixed raid/Mythic+ visibility checks so disabled instance types stay hidden even when multiple toggles are off.
 - Refreshed selected frames when party role/class data changes, keeping click spells and sorting aligned with current roster state.
 - Guarded Blizzard context-menu favorite hooks when a menu payload has no player name.
+- Fixed the Show Frame option so it can both hide and restore the frame from settings.
+- Fixed active buff icon spacing after icon-size changes so icons stay evenly laid out.
 
 ### Added
 

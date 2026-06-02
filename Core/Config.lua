@@ -72,6 +72,7 @@ v1.0.24-midnight.1
     - Prescience Bar now uses a dark track with a class-coloured fill that shrinks as Prescience expires.
     - Full aura refreshes now resync tracked buff icons during combat, and range dimming avoids secure unit-button alpha changes.
     - Delayed instance transitions, raid/Mythic+ visibility, role/class refreshes, and favorite menu payloads are now guarded.
+    - Settings Show Frame now toggles both directions, and active buff icons reflow after icon-size changes.
 
 v1.0.23
     - Fixed the problem of the frame appearing only in gray due to some situations.
