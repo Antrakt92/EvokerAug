@@ -156,9 +156,94 @@ if AddonCompartmentFrame and AddonCompartmentFrame.RegisterAddon then
     })
 end
 
+local function GetFavoriteList()
+    if addon.db and addon.db.profile and addon.db.profile.favoriPlayer then
+        return addon.db.profile.favoriPlayer
+    end
+
+    return {}
+end
+
+local function GetOrderedFavoriteList()
+    local favList = GetFavoriteList()
+    local keys = {}
+    local names = {}
+    local seen = {}
+
+    for key, value in pairs(favList) do
+        if type(key) == "number" and type(value) == "string" and value ~= "" then
+            table.insert(keys, key)
+        end
+    end
+
+    table.sort(keys)
+
+    for _, key in ipairs(keys) do
+        local name = favList[key]
+        if not seen[name] then
+            table.insert(names, name)
+            seen[name] = true
+        end
+    end
+
+    return names
+end
+
+local function NormalizeFavoriteList()
+    local favList = GetFavoriteList()
+    local names = GetOrderedFavoriteList()
+
+    for key in pairs(favList) do
+        favList[key] = nil
+    end
+
+    for index, name in ipairs(names) do
+        favList[index] = name
+    end
+
+    return favList
+end
+
+local function IsFavoriteName(name)
+    if not name then
+        return false
+    end
+
+    for _, favoriteName in ipairs(GetOrderedFavoriteList()) do
+        if favoriteName == name then
+            return true
+        end
+    end
+
+    return false
+end
+
+local function AddFavoriteName(name)
+    if type(name) ~= "string" or name == "" then
+        return
+    end
+
+    local favList = NormalizeFavoriteList()
+    if not IsFavoriteName(name) then
+        table.insert(favList, name)
+    end
+end
+
+local function RemoveFavoriteName(name)
+    if not name then
+        return
+    end
+
+    local favList = NormalizeFavoriteList()
+    for index = #favList, 1, -1 do
+        if favList[index] == name then
+            table.remove(favList, index)
+        end
+    end
+end
+
 local function sortFramesByName(a, b)
-    local favList = addon.db.profile.favoriPlayer
-    for i, v in ipairs(favList) do
+    for _, v in ipairs(GetOrderedFavoriteList()) do
         local playerName = GetCharacterName(v)
         if a.playerName == playerName then
             return true
@@ -170,8 +255,7 @@ local function sortFramesByName(a, b)
 end
 
 local function sortFramesByClass(a, b)
-    local favList = addon.db.profile.favoriPlayer
-    for i, v in ipairs(favList) do
+    for _, v in ipairs(GetOrderedFavoriteList()) do
         local playerName = GetCharacterName(v)
         if a.playerName == playerName then
             return true
@@ -183,8 +267,7 @@ local function sortFramesByClass(a, b)
 end
 
 local function sortFramesByRole(a, b)
-    local favList = addon.db.profile.favoriPlayer
-    for i, v in ipairs(favList) do
+    for _, v in ipairs(GetOrderedFavoriteList()) do
         local playerName = GetCharacterName(v)
         if a.playerName == playerName then
             return true
@@ -999,7 +1082,7 @@ local function GetOptions()
     local profiles = LibStub('AceDBOptions-3.0'):GetOptionsTable(addon.db)
     profiles.order = 600
     profiles.disabled = false
-    local favList = addon.db.profile.favoriPlayer
+    local favList = NormalizeFavoriteList()
     local orderNumber = 2
     EvokerAugOptions = {
         name = addonName,
@@ -1591,11 +1674,11 @@ local function GetOptions()
                         desc = "If you have OmniCD installed, you can see the cooldowns of the spells you have added.",
                         get = function() return addon.db.profile.omniCDSupport end,
                         set = function(_, value)
+                            addon.db.profile.omniCDSupport = value
                             local loaded = C_AddOns and C_AddOns.IsAddOnLoaded and C_AddOns.IsAddOnLoaded("OmniCD")
                             local state = C_AddOns and C_AddOns.GetAddOnEnableState and
                                 C_AddOns.GetAddOnEnableState("OmniCD", UnitGUID("player"))
                             if loaded or state == 2 then
-                                addon.db.profile.omniCDSupport = value
                                 ReloadUI()
                             end
                         end,
@@ -1638,13 +1721,14 @@ local function GetOptions()
             arg = k,
             set = function(_, value)
                 if value then
-                    addon.db.profile.favoriPlayer[k] = v
+                    AddFavoriteName(v)
                 else
-                    addon.db.profile.favoriPlayer[k] = nil
+                    RemoveFavoriteName(v)
                 end
+                AceConfigRegistry:NotifyChange(addonName)
             end,
             get = function()
-                return addon.db.profile.favoriPlayer[k] ~= nil
+                return IsFavoriteName(v)
             end,
         }
 
@@ -2099,13 +2183,7 @@ function EnableAllFrame()
 end
 
 function IsFavorite(name)
-    local favList = addon.db.profile.favoriPlayer
-    for i, v in ipairs(favList) do
-        if v == name then
-            return true
-        end
-    end
-    return false
+    return IsFavoriteName(name)
 end
 
 function MenuHandler(owner, rootDescription, contextData)
@@ -2121,16 +2199,12 @@ function MenuHandler(owner, rootDescription, contextData)
     end
     rootDescription:CreateDivider();
     rootDescription:CreateTitle("EvokerAug");
-    local text = IsFavorite(name) and "Remove from Favorite" or "Add to favorite"
+    local text = IsFavoriteName(name) and "Remove from Favorite" or "Add to favorite"
     rootDescription:CreateButton(text, function()
-        if not IsFavorite(name) then
-            table.insert(addon.db.profile.favoriPlayer, name)
+        if not IsFavoriteName(name) then
+            AddFavoriteName(name)
         else
-            for i, v in ipairs(addon.db.profile.favoriPlayer) do
-                if v == name then
-                    table.remove(addon.db.profile.favoriPlayer, i)
-                end
-            end
+            RemoveFavoriteName(name)
         end
     end)
 end

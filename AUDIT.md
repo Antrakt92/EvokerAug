@@ -75,20 +75,6 @@ speculative cleanup ideas without a concrete failure path.
   realm members and confirm both can be shown, removed, sorted, and clicked
   independently.
 
-### EVA-T2-003: Keep favorite lists compact and normalized
-
-- Evidence: `Core\EvokerAug.lua::MenuHandler` removes favorites with
-  `table.remove`, while the options favorite-list setter writes
-  `favoriPlayer[k] = nil`; `IsFavorite` and sort helpers read with `ipairs`.
-- Current behavior: removing the first favorite from the options page can make
-  later favorites invisible to `ipairs` and break auto-add/sort priority.
-- Impact: favorites stop working for remaining entries after ordinary UI use.
-- Suggested fix direction: use one representation everywhere: either a compact
-  array with `table.remove`/dedupe normalization, or a keyed set by full player
-  identity.
-- Tests/verification: create two favorites, remove the first from options,
-  reload, and confirm the second still auto-adds and sorts as a favorite.
-
 ### EVA-T2-004: Centralize profile apply/reset/switch lifecycle
 
 - Evidence: `Core\EvokerAug.lua::OnInitialize` registers only `OnProfileReset`;
@@ -198,19 +184,6 @@ speculative cleanup ideas without a concrete failure path.
   the addon namespace; use nil or namespaced frame names for internal frames.
 - Tests/verification: add a static check for no bare global function/table
   assignments except intentional addon API.
-
-### EVA-T3-007: Make OmniCD support setting persist even when OmniCD is absent
-
-- Evidence: the OmniCD option setter writes `omniCDSupport` only when OmniCD is
-  loaded or enabled; `OnEnable` reads the saved value to register frame data.
-- Current behavior: if OmniCD is disabled/removed while the profile has support
-  enabled, toggling EvokerAug OmniCD support off does not persist.
-- Impact: stale SavedVariables and confusing UI state for users who uninstall
-  OmniCD or share profiles between setups.
-- Suggested fix direction: always persist the requested boolean; gate only
-  reload/registration/status feedback on OmniCD availability.
-- Tests/verification: simulate OmniCD unavailable, set the option false, reload,
-  and confirm it remains false.
 
 ### EVA-T3-008: Add behavioral tests for stateful Lua flows
 

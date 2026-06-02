@@ -330,6 +330,47 @@ def test_frame_visibility_option_uses_toggle_value():
     assert "HideAllSubFrames()" in frame_hide_section
 
 
+def test_favorite_list_mutations_keep_compact_array():
+    assert "NormalizeFavoriteList" in CORE
+    assert "AddFavoriteName" in CORE
+    assert "RemoveFavoriteName" in CORE
+
+    ordered_body = function_body(CORE, "GetOrderedFavoriteList")
+    assert "table.sort(keys)" in ordered_body
+    assert "pairs(favList)" in ordered_body
+
+    normalize_body = function_body(CORE, "NormalizeFavoriteList")
+    assert "GetOrderedFavoriteList()" in normalize_body
+    assert "favList[key] = nil" in normalize_body
+
+    for sort_name in ("sortFramesByName", "sortFramesByClass", "sortFramesByRole"):
+        sort_body = function_body(CORE, sort_name)
+        assert "GetOrderedFavoriteList()" in sort_body
+        assert "ipairs(favList)" not in sort_body
+
+    options_body = function_body(CORE, "GetOptions")
+    assert "NormalizeFavoriteList()" in options_body
+    assert "AddFavoriteName(v)" in options_body
+    assert "RemoveFavoriteName(v)" in options_body
+    assert "return IsFavoriteName(v)" in options_body
+    assert "addon.db.profile.favoriPlayer[k] = nil" not in CORE
+
+    menu_body = function_body(CORE, "MenuHandler")
+    assert "AddFavoriteName(name)" in menu_body
+    assert "RemoveFavoriteName(name)" in menu_body
+    assert "table.insert(addon.db.profile.favoriPlayer" not in menu_body
+
+
+def test_omnicd_support_toggle_persists_even_when_omnicd_unavailable():
+    options_body = function_body(CORE, "GetOptions")
+    omni_section = options_body[options_body.index("OmniCDSupport = {") :]
+    omni_section = omni_section[: omni_section.index("profiles = profiles")]
+    persist_index = omni_section.index("addon.db.profile.omniCDSupport = value")
+    availability_index = omni_section.index("if loaded or state == 2 then")
+    assert persist_index < availability_index
+    assert "ReloadUI()" in omni_section
+
+
 def test_context_menu_payload_is_guarded_before_favorite_action():
     body = function_body(CORE, "MenuHandler")
     assert "if not contextData or not contextData.name then" in body
