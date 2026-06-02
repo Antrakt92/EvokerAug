@@ -525,6 +525,53 @@ def test_offensive_buff_state_mapping_and_visual_layers_are_explicit():
     assert "playerFrame.offensiveState = state" in apply_body
 
 
+def test_blizzard_compact_frame_highlights_reuse_offensive_state():
+    assert "blizzardFrameHighlights = {" in CONFIG
+    assert "blizzardCompactFrameOverlays = {}" in CORE
+    assert "BLIZZARD_COMPACT_MAJOR_GLOW_KEY" in CORE
+    assert "RefreshBlizzardCompactFrameHighlightsForAllUnits" in CORE
+
+    ensure_body = function_body(CORE, "EnsureBlizzardCompactFrameOverlay")
+    assert "if not CanMutateProtectedFrames() then" in ensure_body
+    assert 'CreateFrame("Frame", nil, UIParent)' in ensure_body
+    assert "LibCustomGlow.PixelGlow_Start(majorGlowAnchor" in ensure_body
+    assert "majorGlowAnchor:SetAlpha(0)" in ensure_body
+
+    update_body = function_body(CORE, "UpdateBlizzardCompactFrameHighlight")
+    assert "frame.displayedUnit or frame.unit" in update_body
+    assert "GetOffensiveStateForUnit(unit)" in update_body
+    assert "SetBlizzardCompactFrameVisualState" in update_body
+    assert "EnsureBlizzardCompactFrameOverlay(frame)" in update_body
+
+    eligibility_body = function_body(CORE, "IsUnitEligibleForBlizzardCompactHighlight")
+    assert 'UnitIsUnit(unit, "player")' in eligibility_body
+    assert 'if combatRole == "DAMAGER" then' in eligibility_body
+    assert 'return combatRole == "DPS"' in eligibility_body
+
+    refresh_body = function_body(CORE, "RefreshBlizzardCompactFrameHighlightsForAllUnits")
+    assert 'UpdateNamedBlizzardCompactFrame("CompactPartyFrameMember"' in refresh_body
+    assert 'UpdateNamedBlizzardCompactFrame("CompactRaidFrame"' in refresh_body
+    assert "addon.db.profile.blizzardFrameHighlights.showRaid" in refresh_body
+
+
+def test_blizzard_compact_frame_highlights_are_combat_safe_and_event_driven():
+    options_body = function_body(CORE, "GetOptions")
+    assert "blizzardFrames = {" in options_body
+    assert "addon.db.profile.blizzardFrameHighlights.enabled = value" in options_body
+    assert "RefreshBlizzardCompactFrameHighlightsForAllUnits()" in options_body
+
+    handler_body = CORE[CORE.index('selectedPlayerFrameContainer:SetScript("OnEvent"') :]
+    assert 'hooksecurefunc("CompactUnitFrame_UpdateAll"' in CORE
+    assert "RefreshBlizzardCompactFrameHighlightsForAllUnits()" in handler_body
+    assert "RefreshBlizzardCompactFrameHighlightsForUnit(unit)" in handler_body
+    assert "BlizzardCompactFrameRefreshPending()" in CORE
+
+    regen_body = CORE[CORE.index('elseif event == "PLAYER_REGEN_ENABLED"') :]
+    regen_body = regen_body[: regen_body.index('elseif event == "PLAYER_ENTERING_WORLD"')]
+    assert "if blizzardCompactFrameRefreshPending then" in regen_body
+    assert "RefreshBlizzardCompactFrameHighlightsForAllUnits()" in regen_body
+
+
 def test_unit_aura_reconciles_offensive_highlights_without_name_scans():
     reconcile_body = function_body(CORE, "ReconcileTrackedAurasForUnit")
     assert "RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)" in reconcile_body

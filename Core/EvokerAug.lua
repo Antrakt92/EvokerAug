@@ -33,14 +33,20 @@ local OFFENSIVE_STATE_BOTH = "both"
 local OFFENSIVE_MAJOR_GLOW_KEY = "EvokerAugOffensiveMajor"
 local OFFENSIVE_MAJOR_GLOW_COLOR = { 1, 0.76, 0.18, 1 }
 local OFFENSIVE_MINOR_MARKER_COLOR = { 0.2, 0.95, 1, 0.9 }
+local BLIZZARD_COMPACT_MAJOR_GLOW_KEY = "EvokerAugBlizzardCompactMajor"
+local BLIZZARD_COMPACT_MINOR_MARKER_WIDTH = 4
 local pendingProtectedFrameRefresh = false
 local pendingActiveProfileApply = false
+local blizzardCompactFrameRefreshPending = false
 local instanceContextGeneration = 0
+local blizzardCompactFrameOverlays = {}
 local CheckShoworHide
 local HideAllSubFrames
 local EnableAllFrame
 local ReconcileTrackedAurasForAllSelectedUnits
 local RefreshRuntimeFrames
+local RefreshBlizzardCompactFrameHighlightsForAllUnits
+local RefreshBlizzardCompactFrameHighlightsForUnit
 local GetUnitClassToken
 local GetHomePartyInfos
 local RightMenu
@@ -404,6 +410,9 @@ local function SetOffensiveBuffEnabled(spellID, enabled, isCustom)
     if RefreshOffensiveBuffHighlightsForAllSelectedUnits then
         RefreshOffensiveBuffHighlightsForAllSelectedUnits()
     end
+    if RefreshBlizzardCompactFrameHighlightsForAllUnits then
+        RefreshBlizzardCompactFrameHighlightsForAllUnits()
+    end
 end
 
 local function SetOffensiveBuffTier(spellID, tier)
@@ -421,6 +430,9 @@ local function SetOffensiveBuffTier(spellID, tier)
 
     if RefreshOffensiveBuffHighlightsForAllSelectedUnits then
         RefreshOffensiveBuffHighlightsForAllSelectedUnits()
+    end
+    if RefreshBlizzardCompactFrameHighlightsForAllUnits then
+        RefreshBlizzardCompactFrameHighlightsForAllUnits()
     end
 end
 
@@ -441,6 +453,9 @@ local function SetCustomOffensiveBuff(spellID, spellName, tier)
 
     if RefreshOffensiveBuffHighlightsForAllSelectedUnits then
         RefreshOffensiveBuffHighlightsForAllSelectedUnits()
+    end
+    if RefreshBlizzardCompactFrameHighlightsForAllUnits then
+        RefreshBlizzardCompactFrameHighlightsForAllUnits()
     end
 end
 -- Map Icon ---
@@ -717,6 +732,28 @@ EnsureOffensiveBuffStateTables = function()
     EnsureProfileTable(profile.offensiveBuffs, defaults.offensiveBuffs, "tiers")
 end
 
+local function EnsureBlizzardFrameHighlightState()
+    if not addon.db or not addon.db.profile then
+        return
+    end
+
+    local profile = addon.db.profile
+    local defaults = addon.DefaultProfile and addon.DefaultProfile.profile
+    if type(defaults) ~= "table" then
+        return
+    end
+
+    EnsureProfileTable(profile, defaults, "blizzardFrameHighlights")
+    EnsureDefaultTableFields(profile.blizzardFrameHighlights, defaults.blizzardFrameHighlights)
+
+    if type(profile.blizzardFrameHighlights.enabled) ~= "boolean" then
+        profile.blizzardFrameHighlights.enabled = defaults.blizzardFrameHighlights.enabled
+    end
+    if type(profile.blizzardFrameHighlights.showRaid) ~= "boolean" then
+        profile.blizzardFrameHighlights.showRaid = defaults.blizzardFrameHighlights.showRaid
+    end
+end
+
 local function NormalizeOffensiveBuffState()
     EnsureOffensiveBuffStateTables()
     if not addon.db or not addon.db.profile then
@@ -807,11 +844,13 @@ local function NormalizeProfileShape()
     EnsureProfileTable(profile, defaults, "minimap")
     EnsureProfileTable(profile, defaults, "positions")
     EnsureProfileTable(profile, defaults, "offensiveBuffs")
+    EnsureProfileTable(profile, defaults, "blizzardFrameHighlights")
 
     EnsureDefaultTableFields(profile.macro, defaults.macro)
     EnsureDefaultTableFields(profile.tankMacros, defaults.tankMacros)
     EnsureDefaultTableFields(profile.dpsMacros, defaults.dpsMacros)
     EnsureDefaultTableFields(profile.minimap, defaults.minimap)
+    EnsureBlizzardFrameHighlightState()
     NormalizeSensePowerSpellIDs(profile)
     NormalizeOffensiveBuffState()
 
@@ -1208,6 +1247,185 @@ RefreshOffensiveBuffHighlight = function(playerFrame, unit)
         return
     end
     ApplyOffensiveBuffVisualState(playerFrame, GetOffensiveStateForUnit(unit))
+end
+
+local function BlizzardCompactFrameRefreshPending()
+    blizzardCompactFrameRefreshPending = true
+end
+
+local function SetBlizzardCompactFrameVisualState(frame, state)
+    local overlay = frame and blizzardCompactFrameOverlays[frame]
+    if not overlay then
+        return
+    end
+
+    if state ~= OFFENSIVE_STATE_MINOR and state ~= OFFENSIVE_STATE_MAJOR and state ~= OFFENSIVE_STATE_BOTH then
+        state = OFFENSIVE_STATE_NONE
+    end
+
+    local hasMajor = state == OFFENSIVE_STATE_MAJOR or state == OFFENSIVE_STATE_BOTH
+    local hasMinor = state == OFFENSIVE_STATE_MINOR or state == OFFENSIVE_STATE_BOTH
+    local alpha = frame.IsShown and frame:IsShown() and 1 or 0
+
+    overlay.majorGlowAnchor:SetAlpha(hasMajor and alpha or 0)
+    overlay.minorMarker:SetAlpha(hasMinor and alpha or 0)
+    overlay.offensiveState = state
+end
+
+local function EnsureBlizzardCompactFrameOverlay(frame)
+    if not frame or (frame.IsForbidden and frame:IsForbidden()) then
+        return nil
+    end
+
+    local overlay = blizzardCompactFrameOverlays[frame]
+    if overlay then
+        return overlay
+    end
+
+    if not CanMutateProtectedFrames() then
+        BlizzardCompactFrameRefreshPending()
+        return nil
+    end
+
+    overlay = CreateFrame("Frame", nil, UIParent)
+    overlay:EnableMouse(false)
+    overlay:SetPoint("TOPLEFT", frame, "TOPLEFT", -2, 2)
+    overlay:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 2, -2)
+    if frame.GetFrameStrata then
+        overlay:SetFrameStrata(frame:GetFrameStrata())
+    end
+    if frame.GetFrameLevel then
+        overlay:SetFrameLevel(frame:GetFrameLevel() + 30)
+    end
+
+    local majorGlowAnchor = CreateFrame("Frame", nil, overlay)
+    majorGlowAnchor:SetAllPoints(overlay)
+    majorGlowAnchor:SetAlpha(0)
+    overlay.majorGlowAnchor = majorGlowAnchor
+    LibCustomGlow.PixelGlow_Start(majorGlowAnchor, OFFENSIVE_MAJOR_GLOW_COLOR, 8, 0.35, 10, 3, 0, 0, true,
+        BLIZZARD_COMPACT_MAJOR_GLOW_KEY)
+
+    local minorMarker = overlay:CreateTexture(nil, "OVERLAY")
+    minorMarker:SetColorTexture(OFFENSIVE_MINOR_MARKER_COLOR[1], OFFENSIVE_MINOR_MARKER_COLOR[2],
+        OFFENSIVE_MINOR_MARKER_COLOR[3], OFFENSIVE_MINOR_MARKER_COLOR[4])
+    minorMarker:SetPoint("TOPLEFT", overlay, "TOPLEFT", -1, 0)
+    minorMarker:SetPoint("BOTTOMLEFT", overlay, "BOTTOMLEFT", -1, 0)
+    minorMarker:SetWidth(BLIZZARD_COMPACT_MINOR_MARKER_WIDTH)
+    minorMarker:SetAlpha(0)
+    overlay.minorMarker = minorMarker
+
+    blizzardCompactFrameOverlays[frame] = overlay
+    return overlay
+end
+
+local function IsUnitEligibleForBlizzardCompactHighlight(unit)
+    if not unit or not UnitExists(unit) then
+        return false
+    end
+    if UnitIsUnit and UnitIsUnit(unit, "player") then
+        return false
+    end
+
+    local combatRole = UnitGroupRolesAssigned(unit)
+    if combatRole == "DAMAGER" then
+        combatRole = "DPS"
+    end
+
+    return combatRole == "DPS"
+end
+
+local function UpdateBlizzardCompactFrameHighlight(frame, unit)
+    if not frame or not addon.db or not addon.db.profile then
+        return
+    end
+
+    EnsureBlizzardFrameHighlightState()
+    local settings = addon.db.profile.blizzardFrameHighlights
+    if settings.enabled == false then
+        SetBlizzardCompactFrameVisualState(frame, OFFENSIVE_STATE_NONE)
+        return
+    end
+    if not IsRuntimeVisibilityAllowed() then
+        SetBlizzardCompactFrameVisualState(frame, OFFENSIVE_STATE_NONE)
+        return
+    end
+
+    unit = unit or frame.displayedUnit or frame.unit
+    if IsInRaid() and not settings.showRaid then
+        SetBlizzardCompactFrameVisualState(frame, OFFENSIVE_STATE_NONE)
+        return
+    end
+    if not IsUnitEligibleForBlizzardCompactHighlight(unit) then
+        SetBlizzardCompactFrameVisualState(frame, OFFENSIVE_STATE_NONE)
+        return
+    end
+
+    if not EnsureBlizzardCompactFrameOverlay(frame) then
+        return
+    end
+
+    SetBlizzardCompactFrameVisualState(frame, GetOffensiveStateForUnit(unit))
+end
+
+local function UpdateNamedBlizzardCompactFrame(prefix, index)
+    local frame = _G[prefix .. index]
+    if frame then
+        UpdateBlizzardCompactFrameHighlight(frame)
+    end
+end
+
+local function ClearBlizzardCompactFrameHighlights()
+    for frame in pairs(blizzardCompactFrameOverlays) do
+        SetBlizzardCompactFrameVisualState(frame, OFFENSIVE_STATE_NONE)
+    end
+end
+
+RefreshBlizzardCompactFrameHighlightsForUnit = function(unit)
+    if not unit then
+        return
+    end
+    if not addon.db or not addon.db.profile then
+        return
+    end
+    EnsureBlizzardFrameHighlightState()
+
+    for index = 1, 5 do
+        local frame = _G["CompactPartyFrameMember" .. index]
+        if frame and (frame.displayedUnit == unit or frame.unit == unit) then
+            UpdateBlizzardCompactFrameHighlight(frame, unit)
+        end
+    end
+
+    if addon.db.profile.blizzardFrameHighlights.showRaid then
+        for index = 1, 40 do
+            local frame = _G["CompactRaidFrame" .. index]
+            if frame and (frame.displayedUnit == unit or frame.unit == unit) then
+                UpdateBlizzardCompactFrameHighlight(frame, unit)
+            end
+        end
+    end
+end
+
+RefreshBlizzardCompactFrameHighlightsForAllUnits = function()
+    if not addon.db or not addon.db.profile then
+        return
+    end
+
+    EnsureBlizzardFrameHighlightState()
+    if addon.db.profile.blizzardFrameHighlights.enabled == false then
+        ClearBlizzardCompactFrameHighlights()
+        return
+    end
+
+    for index = 1, 5 do
+        UpdateNamedBlizzardCompactFrame("CompactPartyFrameMember", index)
+    end
+
+    if addon.db.profile.blizzardFrameHighlights.showRaid then
+        for index = 1, 40 do
+            UpdateNamedBlizzardCompactFrame("CompactRaidFrame", index)
+        end
+    end
 end
 
 local function ClearBuffIcons(playerFrame)
@@ -1843,6 +2061,7 @@ RefreshRuntimeFrames = function()
         FrameAutoFill()
     end
     SyncRuntimeFrameVisibility()
+    RefreshBlizzardCompactFrameHighlightsForAllUnits()
 end
 
 local function GetClasses()
@@ -2627,10 +2846,48 @@ local function GetOptions()
                             EnsureOffensiveBuffStateTables()
                             addon.db.profile.offensiveBuffs.enabled = value
                             RefreshOffensiveBuffHighlightsForAllSelectedUnits()
+                            RefreshBlizzardCompactFrameHighlightsForAllUnits()
                         end,
                     },
-                    spellId = {
+                    blizzardFrames = {
                         order = 3,
+                        type = 'group',
+                        inline = true,
+                        name = "Blizzard Frames",
+                        args = {
+                            enabled = {
+                                order = 1,
+                                type = 'toggle',
+                                name = "Highlight Blizzard Frames",
+                                get = function()
+                                    EnsureBlizzardFrameHighlightState()
+                                    return addon.db.profile.blizzardFrameHighlights.enabled
+                                end,
+                                set = function(_, value)
+                                    EnsureBlizzardFrameHighlightState()
+                                    addon.db.profile.blizzardFrameHighlights.enabled = value
+                                    RefreshBlizzardCompactFrameHighlightsForAllUnits()
+                                end,
+                            },
+                            showRaid = {
+                                order = 2,
+                                type = 'toggle',
+                                name = "Include Raid Groups",
+                                desc = "Also highlight Blizzard raid frames outside 5-player groups.",
+                                get = function()
+                                    EnsureBlizzardFrameHighlightState()
+                                    return addon.db.profile.blizzardFrameHighlights.showRaid
+                                end,
+                                set = function(_, value)
+                                    EnsureBlizzardFrameHighlightState()
+                                    addon.db.profile.blizzardFrameHighlights.showRaid = value
+                                    RefreshBlizzardCompactFrameHighlightsForAllUnits()
+                                end,
+                            },
+                        },
+                    },
+                    spellId = {
+                        order = 4,
                         type = "input",
                         name = "Custom Offensive Spell ID",
                         desc = "Add a visible helpful aura spell ID to highlight as a minor offensive buff.",
@@ -2782,6 +3039,7 @@ local function ApplyActiveProfile()
         if addon.db.profile.autoFrameFill then
             FrameAutoFill()
         end
+        RefreshBlizzardCompactFrameHighlightsForAllUnits()
     end
 end
 
@@ -2844,6 +3102,12 @@ function addon:OnEnable() -- PLAYER_LOGIN
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_LOGOUT")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
 
+    if hooksecurefunc and CompactUnitFrame_UpdateAll then
+        hooksecurefunc("CompactUnitFrame_UpdateAll", function(frame)
+            UpdateBlizzardCompactFrameHighlight(frame)
+        end)
+    end
+
     local addonNameTexture = selectedPlayerFrameContainer:CreateTexture(nil, "OVERLAY")
     addonNameTexture:SetAllPoints()
     addonNameTexture:SetTexture("Interface\\Addons\\EvokerAug\\Media\\bar")
@@ -2902,6 +3166,10 @@ function addon:OnEnable() -- PLAYER_LOGIN
                 ApplySpellIconSize()
                 CreateProgressBar()
             end
+            if blizzardCompactFrameRefreshPending then
+                blizzardCompactFrameRefreshPending = false
+                RefreshBlizzardCompactFrameHighlightsForAllUnits()
+            end
         elseif event == "PLAYER_ENTERING_WORLD" then
             instanceContextGeneration = instanceContextGeneration + 1
             local generation = instanceContextGeneration
@@ -2927,12 +3195,14 @@ function addon:OnEnable() -- PLAYER_LOGIN
                 end
             end
             ApplyInstanceVisibilityPolicy()
+            RefreshBlizzardCompactFrameHighlightsForAllUnits()
         elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
             if unit == "player" then
                 local currentSpec = GetSpecialization()
                 if currentSpec then
                     if currentSpec ~= 3 then
                         HideAllSubFrames()
+                        ClearBlizzardCompactFrameHighlights()
                     else
                         RefreshRuntimeFrames()
                         SyncRuntimeFrameVisibility()
@@ -2942,6 +3212,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
         elseif event == "UNIT_AURA" then
             if info == nil or info.isFullUpdate then
                 ReconcileTrackedAurasForUnit(unit)
+                RefreshBlizzardCompactFrameHighlightsForUnit(unit)
                 return
             end
             local frameIndex = GetPlayerFrameIndexByUnit(unit)
@@ -2970,6 +3241,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
             if selectedPlayerFrames[frameIndex] then
                 RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)
             end
+            RefreshBlizzardCompactFrameHighlightsForUnit(unit)
         elseif event == "UNIT_FLAGS" then
             if unit ~= "player" then
                 local isDeadOrGhost = UnitIsDeadOrGhost(unit)

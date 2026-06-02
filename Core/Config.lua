@@ -66,6 +66,10 @@ addon.DefaultProfile = {
             custom = {},
             tiers = {},
         },
+        blizzardFrameHighlights = {
+            enabled = true,
+            showRaid = false,
+        },
         omniCDSupport = false,
         favoriPlayer = {},
     }
