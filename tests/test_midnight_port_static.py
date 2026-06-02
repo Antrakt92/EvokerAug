@@ -167,11 +167,45 @@ def test_deleted_and_reconfigured_frames_clear_buff_tickers():
     delete_body = function_body(CORE, "DeleteSelectedPlayerFrame")
     assert "ClearBuffIcons(selectedPlayerFrames[playerIndex])" in delete_body
 
+    clear_body = function_body(CORE, "ClearSelectedFrameState")
+    assert "for i = #selectedPlayerFrames, 1, -1 do" in clear_body
+    assert "ClearBuffIcons(frame)" in clear_body
+    assert "string.match(i" not in clear_body
+    assert "break" not in clear_body
+
+
+def test_profile_callbacks_use_single_combat_aware_apply_path():
+    assert "local pendingActiveProfileApply = false" in CORE
+    assert "ApplyActiveProfile" in CORE
+    assert "PopulateCharSpellDefaults" in CORE
+
+    init_body = function_body(CORE, "addon:OnInitialize")
+    assert 'self.db.RegisterCallback(self, "OnProfileReset", "Reconfigure")' in init_body
+    assert 'self.db.RegisterCallback(self, "OnProfileChanged", "Reconfigure")' in init_body
+    assert 'self.db.RegisterCallback(self, "OnProfileCopied", "Reconfigure")' in init_body
+
     reconfigure_body = function_body(CORE, "addon:Reconfigure")
-    assert "for i = #selectedPlayerFrames, 1, -1 do" in reconfigure_body
-    assert "ClearBuffIcons(frame)" in reconfigure_body
-    assert "string.match(i" not in reconfigure_body
-    assert "break" not in reconfigure_body
+    assert "ApplyActiveProfile()" in reconfigure_body
+    assert "copytable" not in reconfigure_body
+
+    apply_body = function_body(CORE, "ApplyActiveProfile")
+    assert "PopulateCharSpellDefaults()" in apply_body
+    assert "SeedCustomBuffListFromBuffList()" in apply_body
+    assert "NormalizeFavoriteList()" in apply_body
+    assert "AceConfigRegistry:NotifyChange(addonName)" in apply_body
+    assert "if not CanMutateProtectedFrames() then" in apply_body
+    assert "pendingActiveProfileApply = true" in apply_body
+    assert "ClearSelectedFrameState()" in apply_body
+    assert "selectedPlayerFrameContainer:ClearAllPoints()" in apply_body
+    assert "selectedPlayerFrameContainer:RegisterEvent(\"PLAYER_ENTERING_WORLD\")" in apply_body
+    assert "selectedPlayerFrameContainer:UnregisterEvent(\"PLAYER_ENTERING_WORLD\")" in apply_body
+    assert "RegisterOmniCDFrameData()" in apply_body
+    assert "CreateProgressBar()" in apply_body
+
+    regen_body = CORE[CORE.index('elseif event == "PLAYER_REGEN_ENABLED"') :]
+    regen_body = regen_body[: regen_body.index('elseif event == "PLAYER_ENTERING_WORLD"')]
+    assert "if pendingActiveProfileApply then" in regen_body
+    assert "ApplyActiveProfile()" in regen_body
 
 
 def test_favorite_frames_use_real_party_unit_tokens():

@@ -22,6 +22,7 @@ local EBON_MIGHT_SPELL_IDS = { 395296, 395152 }
 local PRESCIENCE_ICON_ID = 5199639
 local PLAYER_FRAME_WIDTH = 150
 local pendingProtectedFrameRefresh = false
+local pendingActiveProfileApply = false
 local instanceContextGeneration = 0
 
 local function IsCleanNumber(value)
@@ -1880,10 +1881,93 @@ local function GetOptions()
     return EvokerAugOptions
 end
 
+local function PopulateCharSpellDefaults()
+    addon.db.profile.charSpell = addon.db.profile.charSpell or {}
+    for _, spell in ipairs(spell_list["EVOKER"]["AUGMENTATION"]) do
+        addon.db.profile.charSpell[spell.spellID] = spell.name
+    end
+end
+
+local function RegisterOmniCDFrameData()
+    if addon.db.profile.omniCDSupport then
+        local ofunc = OmniCD and OmniCD.AddUnitFrameData
+        if ofunc then
+            ofunc("EvokerAug", "EvokerAugPartyFrame", "unit", 1)
+        end
+    end
+end
+
+local function ClearSelectedFrameState()
+    for i = #selectedPlayerFrames, 1, -1 do
+        local frame = selectedPlayerFrames[i]
+        ClearBuffIcons(frame)
+        frame:Hide()
+        frame:ClearAllPoints()
+        frame:SetParent(nil)
+        selectedPlayerFrames[i] = nil
+    end
+    checkboxStates = {}
+    selectedPlayerFrames = {}
+    DeadorGhostData = {}
+    if distanceTimer then
+        distanceTimer:Cancel()
+        distanceTimer = nil
+    end
+end
+
+local function ApplyActiveProfile()
+    EnsureTrackedBuffStateTables()
+    SeedCustomBuffListFromBuffList()
+    NormalizeFavoriteList()
+    PopulateCharSpellDefaults()
+    AceConfigRegistry:NotifyChange(addonName)
+    RegisterOmniCDFrameData()
+
+    if not selectedPlayerFrameContainer then
+        return
+    end
+
+    if not CanMutateProtectedFrames() then
+        pendingActiveProfileApply = true
+        MarkProtectedFrameRefreshPending()
+        return
+    end
+
+    pendingActiveProfileApply = false
+    pendingProtectedFrameRefresh = false
+    isCombatButton = false
+    if addonNameText then
+        addonNameText:SetText(addonName)
+    end
+
+    ClearSelectedFrameState()
+    selectedPlayerFrameContainer:ClearAllPoints()
+    selectedPlayerFrameContainer:SetPoint(addon.db.profile.positions.point, addon.db.profile.positions.xOffset,
+        addon.db.profile.positions.yOffset)
+
+    if addon.db.profile.autoFrameFill then
+        selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
+    else
+        selectedPlayerFrameContainer:UnregisterEvent("PLAYER_ENTERING_WORLD")
+    end
+
+    ApplyButtonHeight()
+    ApplySpellIconSize()
+    CreateProgressBar()
+    if ApplyInstanceVisibilityPolicy() then
+        AddFrameFavorite()
+        if addon.db.profile.autoFrameFill then
+            FrameAutoFill()
+        end
+    end
+end
+
 function addon:OnInitialize()
     self.db = LibStub('AceDB-3.0'):New(addonName .. "DB", self.DefaultProfile, true)
     SeedCustomBuffListFromBuffList()
     self.db.RegisterCallback(self, "OnProfileReset", "Reconfigure")
+    self.db.RegisterCallback(self, "OnProfileChanged", "Reconfigure")
+    self.db.RegisterCallback(self, "OnProfileCopied", "Reconfigure")
     self:RegisterChatCommand("aug", function(cmd)
         addon:OpenOptions(strsplit(' ', cmd or ""))
     end, true)
@@ -1971,6 +2055,9 @@ function addon:OnEnable() -- PLAYER_LOGIN
             combatLockdown = true
         elseif event == "PLAYER_REGEN_ENABLED" then
             combatLockdown = false
+            if pendingActiveProfileApply then
+                ApplyActiveProfile()
+            end
             if isCombatButton or pendingProtectedFrameRefresh then
                 addonNameText:SetText(addonName)
                 isCombatButton = false
@@ -2095,16 +2182,8 @@ function addon:OnEnable() -- PLAYER_LOGIN
         end
     end)
 
-    for i, spell in ipairs(spell_list["EVOKER"]["AUGMENTATION"]) do
-        self.db.profile.charSpell[spell.spellID] = spell.name
-    end
-
-    if addon.db.profile.omniCDSupport then
-        local ofunc = OmniCD and OmniCD.AddUnitFrameData
-        if ofunc then
-            ofunc("EvokerAug", "EvokerAugPartyFrame", "unit", 1)
-        end
-    end
+    PopulateCharSpellDefaults()
+    RegisterOmniCDFrameData()
 
 
     -----------------------------
@@ -2129,43 +2208,8 @@ function addon:OnEnable() -- PLAYER_LOGIN
     end
 end
 
-local function copytable(dst, src)
-    wipe(dst)
-    for k, v in pairs(src) do
-        if type(v) == "table" then
-            if type(dst[k]) ~= "table" then
-                dst[k] = {}
-            end
-            copytable(dst[k], v)
-        else
-            dst[k] = v
-        end
-    end
-end
-
 function addon:Reconfigure()
-    copytable(self.db.profile, self.DefaultProfile.profile)
-    for i, spell in ipairs(spell_list["EVOKER"]["AUGMENTATION"]) do
-        self.db.profile.charSpell[spell.spellID] = spell.name
-    end
-
-    for i = #selectedPlayerFrames, 1, -1 do
-        local frame = selectedPlayerFrames[i]
-        ClearBuffIcons(frame)
-        frame:Hide()
-        frame:ClearAllPoints()
-        frame:SetParent(nil)
-        selectedPlayerFrames[i] = nil
-    end
-    checkboxStates = {}
-    selectedPlayerFrames = {}
-    if distanceTimer then
-        distanceTimer:Cancel()
-        distanceTimer = nil
-    end
-    selectedPlayerFrameContainer:ClearAllPoints()
-    selectedPlayerFrameContainer:SetPoint(self.db.profile.positions.point, self.db.profile.positions.xOffset,
-        self.db.profile.positions.yOffset)
+    ApplyActiveProfile()
 end
 
 local function AddHomePartyInfo(partyMembers, unit)

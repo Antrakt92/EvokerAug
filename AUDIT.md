@@ -17,28 +17,6 @@ speculative cleanup ideas without a concrete failure path.
 - Tests: current static regression checks, Lua syntax checks, and gaps where
   behavior needs a harness or in-game verification.
 
-## T2 High
-
-### EVA-T2-004: Centralize profile apply/reset/switch lifecycle
-
-- Evidence: `Core\EvokerAug.lua::OnInitialize` registers only `OnProfileReset`;
-  AceDB fires `OnProfileChanged` and `OnProfileCopied`; AceDBOptions exposes
-  set/copy/delete/reset profile controls; `addon:Reconfigure` mutates secure
-  frames and positions without the same combat gate used by frame helpers.
-- Current behavior: profile switches/copies can leave empty `charSpell` values,
-  stale macro attributes, old frame layout/events, and old OmniCD state until
-  reload; profile reset can run protected frame mutations from an options panel
-  during combat.
-- Impact: profile operations can break click macros, visible frames, and combat
-  lockdown safety.
-- Suggested fix direction: create one `ApplyActiveProfile` path for reset,
-  copy, and switch callbacks; populate `charSpell`, refresh options, reapply
-  frame/event/OmniCD state, and defer protected mutations until
-  `PLAYER_REGEN_ENABLED`.
-- Tests/verification: switch to a fresh profile and confirm macro dropdowns are
-  populated immediately; copy a profile and confirm visible frame state updates;
-  attempt reset in combat and confirm work is queued rather than forbidden.
-
 ## T3 Medium / Low
 
 ### EVA-T3-002: Harden saved frame position loading and saving

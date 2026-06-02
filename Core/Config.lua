@@ -78,6 +78,7 @@ v1.0.24-midnight.1
     - Favorite removals now keep the saved list compact, and OmniCD support saves the requested state even when OmniCD is absent.
     - Tracked buff settings now persist disabled default buffs and restore saved custom spell IDs after reload.
     - Party frames now track full player identity so same-name cross-realm players stay separate.
+    - Profile reset, copy, and switch now reapply settings through one combat-safe refresh path.
 
 v1.0.23
     - Fixed the problem of the frame appearing only in gray due to some situations.
