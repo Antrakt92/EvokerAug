@@ -31,6 +31,19 @@ def test_config_version_matches_toc():
     assert '["version"] = "1.0.24-midnight.1"' in CONFIG
 
 
+def test_default_frame_starts_unlocked_for_initial_positioning():
+    assert "headerunlock = true" in CONFIG
+
+    drag_body = re.search(
+        r'selectedPlayerFrameContainer:SetScript\("OnDragStart".*?end\)',
+        CORE,
+        re.S,
+    )
+    assert drag_body, "OnDragStart handler is missing"
+    assert "self.db.profile.headerunlock" in drag_body.group(0)
+    assert "sel:StartMoving()" in drag_body.group(0)
+
+
 def test_aura_tracking_is_spell_id_based_for_midnight():
     assert "GetAuraDataBySpellName" not in CORE
     assert "FindTrackedAuraBySpellID" in CORE

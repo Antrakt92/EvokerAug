@@ -19,7 +19,7 @@ addon.DefaultProfile = {
         spellIconTextSize = 12,
         backgroundTextTexture = "Interface\\Addons\\EvokerAug\\Media\\bar",
         backgroundTextTexture2 = "EvokerAug",
-        headerunlock = false,
+        headerunlock = true,
         autoFrameFill = false,
         showRaid = true,
         showMythic = true,
@@ -68,6 +68,7 @@ addon.Config = {
     ["changelog"] = [=[
 v1.0.24-midnight.1
     - Midnight compatibility pass: updated TOC metadata, spellID aura tracking, localized class handling, and combat-safe frame updates.
+    - New profiles now start with the frame unlocked so it can be positioned immediately, then locked from the right-click menu.
 
 v1.0.23
     - Fixed the problem of the frame appearing only in gray due to some situations.
