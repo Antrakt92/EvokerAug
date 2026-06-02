@@ -51,6 +51,7 @@ def test_default_frame_starts_unlocked_for_initial_positioning():
     )
     assert drag_body, "OnDragStart handler is missing"
     assert "self.db.profile.headerunlock" in drag_body.group(0)
+    assert "CanMutateProtectedFrames()" in drag_body.group(0)
     assert "sel:StartMoving()" in drag_body.group(0)
 
 
@@ -60,6 +61,11 @@ def test_aura_tracking_is_spell_id_based_for_midnight():
     assert "EBON_MIGHT_SPELL_IDS" in CORE
     assert "issecretvalue" in CORE
     assert "IsCleanPositiveNumber" in CORE
+
+    find_body = function_body(CORE, "FindAuraBySpellID")
+    assert "GetUnitAuraBySpellID" in find_body
+    assert "GetAuraDataByIndex" not in find_body
+    assert "for index = 1, 40" not in find_body
 
 
 def test_localized_class_names_are_not_used_as_class_tokens():
@@ -315,15 +321,15 @@ def test_tracked_buffs_use_explicit_disabled_and_custom_state():
     assert "addon.db.profile.customBuffList[spellID] = nil" in set_body
 
     find_body = function_body(CORE, "FindTrackedAuraBySpellID")
-    assert "IsTrackedBuffEnabled(aura.spellId)" in find_body
+    assert "IsTrackedAuraData(aura)" in find_body
 
     add_icons_body = function_body(CORE, "AddBuffIcons")
     assert "IsTrackedBuffEnabled(k)" in add_icons_body
 
     unit_aura_body = CORE[CORE.index('elseif event == "UNIT_AURA"') :]
     unit_aura_body = unit_aura_body[: unit_aura_body.index('elseif event == "UNIT_FLAGS"')]
-    assert "IsTrackedBuffEnabled(v.spellId)" in unit_aura_body
-    assert "IsTrackedBuffEnabled(aura.spellId)" in unit_aura_body
+    assert "IsTrackedAuraData(v)" in unit_aura_body
+    assert "IsTrackedAuraData(aura)" in unit_aura_body
 
     spell_add_body = function_body(CORE, "SpellListAdd")
     assert "SetTrackedBuff(spellId, Spell.name, true, true)" in spell_add_body
@@ -336,6 +342,28 @@ def test_tracked_buffs_use_explicit_disabled_and_custom_state():
 
     assert "addon.db.profile.buffList[k] = nil" not in CORE
     assert "addon.db.profile.buffList[spellId] = nil" not in CORE
+
+
+def test_aura_payload_fields_are_secret_guarded_before_use():
+    assert "GetCleanPositiveSpellID" in CORE
+    assert "IsCleanAuraIcon" in CORE
+    assert "IsUsableAuraData" in CORE
+    assert "IsTrackedAuraData" in CORE
+
+    enabled_body = function_body(CORE, "IsTrackedBuffEnabled")
+    assert "GetCleanPositiveSpellID(spellID)" in enabled_body
+    assert "tonumber(spellID)" not in enabled_body
+
+    usable_body = function_body(CORE, "IsUsableAuraData")
+    for field in ("aura.spellId", "aura.auraInstanceID", "aura.expirationTime", "aura.duration", "aura.icon"):
+        assert field in usable_body
+    assert "IsCleanAuraIcon(aura.icon)" in usable_body
+
+    add_body = function_body(CORE, "AddBuffIcon")
+    assert "not IsCleanPositiveNumber(auraInstanceID)" in add_body
+    assert "not IsCleanAuraIcon(icon)" in add_body
+    assert "local cleanSpellID = GetCleanPositiveSpellID(spellID)" in add_body
+    assert "cleanSpellID == 361022" in add_body
 
 
 def test_omnicd_toggle_uses_wow_reloadui_api():

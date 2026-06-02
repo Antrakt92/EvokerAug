@@ -52,6 +52,41 @@ local function IsCleanPositiveNumber(value)
     return IsCleanNumber(value) and value > 0
 end
 
+local function GetCleanPositiveSpellID(value)
+    if issecretvalue(value) then
+        return nil
+    end
+
+    local valueType = type(value)
+    if valueType ~= "number" and valueType ~= "string" then
+        return nil
+    end
+
+    local spellID = tonumber(value)
+    if spellID and spellID > 0 then
+        return spellID
+    end
+    return nil
+end
+
+local function IsCleanAuraIcon(value)
+    if issecretvalue(value) then
+        return false
+    end
+
+    local valueType = type(value)
+    return valueType == "number" or valueType == "string"
+end
+
+local function IsUsableAuraData(aura)
+    return aura
+        and GetCleanPositiveSpellID(aura.spellId) ~= nil
+        and IsCleanPositiveNumber(aura.auraInstanceID)
+        and IsCleanPositiveNumber(aura.expirationTime)
+        and IsCleanPositiveNumber(aura.duration)
+        and IsCleanAuraIcon(aura.icon)
+end
+
 local function CanMutateProtectedFrames()
     return not combatLockdown and not (InCombatLockdown and InCombatLockdown())
 end
@@ -103,20 +138,28 @@ GetUnitClassToken = function(unit)
 end
 
 local function FindAuraBySpellID(unit, spellID)
+    spellID = GetCleanPositiveSpellID(spellID)
     if not unit or not spellID or not UnitExists(unit) then
         return nil
     end
 
-    if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
-        for index = 1, 40 do
-            local aura = C_UnitAuras.GetAuraDataByIndex(unit, index, "HELPFUL")
-            if not aura then
-                break
-            end
-            if aura.spellId == spellID then
-                return aura
-            end
+    if C_UnitAuras and C_UnitAuras.GetUnitAuraBySpellID then
+        local aura = C_UnitAuras.GetUnitAuraBySpellID(unit, spellID)
+        if IsUsableAuraData(aura) and GetCleanPositiveSpellID(aura.spellId) == spellID then
+            return aura
         end
+    end
+
+    if AuraUtil and AuraUtil.ForEachAura then
+        local foundAura
+        AuraUtil.ForEachAura(unit, "HELPFUL", nil, function(aura)
+            if IsUsableAuraData(aura) and GetCleanPositiveSpellID(aura.spellId) == spellID then
+                foundAura = aura
+                return true
+            end
+            return false
+        end, true)
+        return foundAura
     end
 
     return nil
@@ -147,7 +190,7 @@ local function IsCoreBuffOption(spellID)
 end
 
 local function IsTrackedBuffEnabled(spellID)
-    spellID = tonumber(spellID)
+    spellID = GetCleanPositiveSpellID(spellID)
     if not spellID or not addon.db or not addon.db.profile then
         return false
     end
@@ -201,9 +244,14 @@ local function SeedCustomBuffListFromBuffList()
     end
 end
 
+local function IsTrackedAuraData(aura)
+    local spellID = aura and GetCleanPositiveSpellID(aura.spellId)
+    return spellID and IsUsableAuraData(aura) and IsTrackedBuffEnabled(spellID)
+end
+
 local function FindTrackedAuraBySpellID(unit, spellID)
     local aura = FindAuraBySpellID(unit, spellID)
-    if aura and IsTrackedBuffEnabled(aura.spellId) then
+    if IsTrackedAuraData(aura) then
         return aura
     end
     return nil
@@ -735,10 +783,12 @@ local function RemoveBuffIcon(playerFrame, buffID)
 end
 
 local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTimer, spellID)
-    if playerFrame == nil then
+    if playerFrame == nil or not playerFrame["buff"] then
         return
     end
-    if not IsCleanPositiveNumber(timestamp) or not IsCleanPositiveNumber(startTimer) then
+    local cleanSpellID = GetCleanPositiveSpellID(spellID)
+    if not IsCleanPositiveNumber(auraInstanceID) or not IsCleanPositiveNumber(timestamp) or not IsCleanPositiveNumber(startTimer)
+        or not IsCleanAuraIcon(icon) or not cleanSpellID then
         return
     end
 
@@ -810,7 +860,7 @@ local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTi
     end)
     playerFrame["buff"].xOffset = playerFrame["buff"].xOffset + addon.db.profile.spellIconSize
 
-    if spellID == 361022 then
+    if cleanSpellID == 361022 then
         playerFrame["buff"][auraInstanceID].glow = true
         LibCustomGlow.PixelGlow_Start(playerFrame, { 0.95, 0.95, 0.32, 1 }, 8, 0.25, 10, 3, 0, 0, true, nil)
     end
@@ -2121,14 +2171,20 @@ function addon:OnEnable() -- PLAYER_LOGIN
     addonNameText:SetJustifyV("MIDDLE")
 
     selectedPlayerFrameContainer:SetScript("OnDragStart", function(sel)
-        if self.db.profile.headerunlock then
+        if self.db.profile.headerunlock and CanMutateProtectedFrames() then
+            sel.evokerAugIsMoving = true
             sel:StartMoving()
         end
     end)
 
     selectedPlayerFrameContainer:SetScript("OnDragStop", function(sel)
-        sel:StopMovingOrSizing()
-        SavePosition(selectedPlayerFrameContainer)
+        if sel.evokerAugIsMoving then
+            sel.evokerAugIsMoving = nil
+            sel:StopMovingOrSizing()
+            if CanMutateProtectedFrames() then
+                SavePosition(selectedPlayerFrameContainer)
+            end
+        end
     end)
 
     selectedPlayerFrameContainer:SetScript("OnEvent", function(self, event, unit, info)
@@ -2203,22 +2259,18 @@ function addon:OnEnable() -- PLAYER_LOGIN
             local frameIndex = GetPlayerFrameIndexByUnit(unit)
             if info.addedAuras and #info.addedAuras > 0 and selectedPlayerFrames[frameIndex] then
                 for _, v in ipairs(info.addedAuras) do
-                    if IsTrackedBuffEnabled(v.spellId) then
-                        if IsCleanPositiveNumber(v.expirationTime) and selectedPlayerFrames[frameIndex] then
-                            AddBuffIcon(selectedPlayerFrames[frameIndex], v.auraInstanceID, v.expirationTime, v.icon,
-                                v.duration, v.spellId)
-                        end
+                    if IsTrackedAuraData(v) then
+                        AddBuffIcon(selectedPlayerFrames[frameIndex], v.auraInstanceID, v.expirationTime, v.icon,
+                            v.duration, v.spellId)
                     end
                 end
             end
             if info.updatedAuraInstanceIDs and #info.updatedAuraInstanceIDs > 0 and selectedPlayerFrames[frameIndex] then
                 for _, v in ipairs(info.updatedAuraInstanceIDs) do
                     local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, v)
-                    if aura and IsTrackedBuffEnabled(aura.spellId) then
-                        if IsCleanPositiveNumber(aura.expirationTime) then
-                            AddBuffIcon(selectedPlayerFrames[frameIndex], aura.auraInstanceID, aura.expirationTime,
-                                aura.icon, aura.duration, aura.spellId)
-                        end
+                    if IsTrackedAuraData(aura) then
+                        AddBuffIcon(selectedPlayerFrames[frameIndex], aura.auraInstanceID, aura.expirationTime,
+                            aura.icon, aura.duration, aura.spellId)
                     end
                 end
             end
