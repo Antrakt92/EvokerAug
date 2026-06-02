@@ -47,6 +47,22 @@ function Assert-PathInsideRoot {
     }
 }
 
+function Test-AnyWildcardMatch {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Value,
+        [string[]]$Patterns = @()
+    )
+
+    foreach ($pattern in $Patterns) {
+        if ($Value -like $pattern) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")).Path
 $outputRoot = Resolve-ChildPath -BasePath $repoRoot -ChildPath $OutputDirectory
 $stagingRoot = Join-Path $outputRoot "_staging"
@@ -79,6 +95,14 @@ $ignoredFiles = @(
     "CLAUDE.md"
 )
 
+$ignoredDirectoryPatterns = @(
+    "*.private"
+)
+
+$ignoredFilePatterns = @(
+    "*.private.md"
+)
+
 if (Test-Path -LiteralPath $stagingRoot) {
     Remove-Item -LiteralPath $stagingRoot -Recurse -Force
 }
@@ -88,11 +112,11 @@ New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 
 $sourceItems = Get-ChildItem -LiteralPath $repoRoot -Force
 foreach ($item in $sourceItems) {
-    if ($item.PSIsContainer -and ($ignoredDirectories -contains $item.Name)) {
+    if ($item.PSIsContainer -and (($ignoredDirectories -contains $item.Name) -or (Test-AnyWildcardMatch -Value $item.Name -Patterns $ignoredDirectoryPatterns))) {
         continue
     }
 
-    if (-not $item.PSIsContainer -and ($ignoredFiles -contains $item.Name)) {
+    if (-not $item.PSIsContainer -and (($ignoredFiles -contains $item.Name) -or (Test-AnyWildcardMatch -Value $item.Name -Patterns $ignoredFilePatterns))) {
         continue
     }
 

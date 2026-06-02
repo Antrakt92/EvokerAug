@@ -905,6 +905,12 @@ def test_local_package_script_documents_expected_zip_surface():
         "CLAUDE.md",
     ]:
         assert ignored in script
+    assert '$ignoredFilePatterns = @(' in script
+    assert '"*.private.md"' in script
+    assert '$ignoredDirectoryPatterns = @(' in script
+    assert '"*.private"' in script
+    assert "Test-AnyWildcardMatch -Value $item.Name -Patterns $ignoredFilePatterns" in script
+    assert "Test-AnyWildcardMatch -Value $item.Name -Patterns $ignoredDirectoryPatterns" in script
 
 
 def test_local_package_script_bounds_destructive_paths():
