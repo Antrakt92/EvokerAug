@@ -7,6 +7,7 @@ CORE = (ROOT / "Core" / "EvokerAug.lua").read_text(encoding="utf-8")
 CONFIG = (ROOT / "Core" / "Config.lua").read_text(encoding="utf-8")
 SPELL_LIST = (ROOT / "Core" / "SpellList.lua").read_text(encoding="utf-8")
 TOC = (ROOT / "EvokerAug.toc").read_text(encoding="utf-8")
+README = (ROOT / "README.md").read_text(encoding="utf-8")
 PKGMETA = (ROOT / ".pkgmeta").read_text(encoding="utf-8")
 GITIGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="utf-8")
@@ -596,6 +597,24 @@ def test_midnight_release_has_source_changelog():
     changelog = CHANGELOG.read_text(encoding="utf-8")
     assert "## v1.0.24-midnight.1" in changelog
     assert "Midnight" in changelog
+
+
+def test_public_copy_describes_midnight_buff_tracking():
+    stale_copy = [
+        "current number of evokers",
+        "evokers in the zone",
+        "list of all the evokers",
+    ]
+    for phrase in stale_copy:
+        assert phrase not in TOC
+        assert phrase not in README
+
+    assert "Midnight" in README
+    assert "Augmentation" in README
+    assert "Prescience" in README
+    assert "party" in README.lower()
+    assert "Prescience" in TOC
+    assert "Augmentation" in TOC
 
 
 def test_packager_uses_curated_changelog_for_release_notes():

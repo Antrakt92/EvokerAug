@@ -37,6 +37,7 @@
 - Cleaned package artifacts so developer-only files and nested vendor metadata stay out of test/release zips.
 - Reduced internal global namespace leakage so addon helpers and spell tables are less likely to collide with other addons.
 - Hardened local package/install scripts so custom paths cannot escape the intended repo or AddOns roots.
+- Updated README and TOC copy to describe the current Midnight Augmentation buff-tracker behavior.
 
 ### Added
 
