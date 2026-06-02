@@ -40,6 +40,7 @@ local pendingActiveProfileApply = false
 local blizzardCompactFrameRefreshPending = false
 local instanceContextGeneration = 0
 local blizzardCompactFrameOverlays = {}
+local offensiveCastWindowsByGUID = {}
 local CheckShoworHide
 local HideAllSubFrames
 local EnableAllFrame
@@ -1193,6 +1194,52 @@ local function ApplyOffensiveBuffVisualState(playerFrame, state)
     playerFrame.offensiveState = state
 end
 
+local function GetOffensiveCastWindowStateForUnit(unit)
+    if not unit or not UnitExists(unit) then
+        return OFFENSIVE_STATE_NONE
+    end
+
+    local guid = UnitGUID(unit)
+    local windows = guid and offensiveCastWindowsByGUID[guid]
+    if not windows then
+        return OFFENSIVE_STATE_NONE
+    end
+
+    local now = GetTime()
+    local hasMajor = false
+    local hasMinor = false
+    local hasAnyWindow = false
+
+    for spellID, window in pairs(windows) do
+        if type(window) == "table" and IsCleanNumber(window.expires) and window.expires > now and
+            IsOffensiveBuffEnabled(spellID) then
+            hasAnyWindow = true
+            if window.tier == OFFENSIVE_TIER_MAJOR then
+                hasMajor = true
+            elseif window.tier == OFFENSIVE_TIER_MINOR then
+                hasMinor = true
+            end
+        else
+            windows[spellID] = nil
+        end
+    end
+
+    if not hasAnyWindow then
+        offensiveCastWindowsByGUID[guid] = nil
+        return OFFENSIVE_STATE_NONE
+    end
+    if hasMajor and hasMinor then
+        return OFFENSIVE_STATE_BOTH
+    end
+    if hasMajor then
+        return OFFENSIVE_STATE_MAJOR
+    end
+    if hasMinor then
+        return OFFENSIVE_STATE_MINOR
+    end
+    return OFFENSIVE_STATE_NONE
+end
+
 local function GetOffensiveStateForUnit(unit)
     if not unit or not addon.db or not addon.db.profile then
         return OFFENSIVE_STATE_NONE
@@ -1230,6 +1277,16 @@ local function GetOffensiveStateForUnit(unit)
         end
     end
 
+    local castWindowState = GetOffensiveCastWindowStateForUnit(unit)
+    if castWindowState == OFFENSIVE_STATE_BOTH then
+        hasMajor = true
+        hasMinor = true
+    elseif castWindowState == OFFENSIVE_STATE_MAJOR then
+        hasMajor = true
+    elseif castWindowState == OFFENSIVE_STATE_MINOR then
+        hasMinor = true
+    end
+
     if hasMajor and hasMinor then
         return OFFENSIVE_STATE_BOTH
     end
@@ -1247,6 +1304,70 @@ RefreshOffensiveBuffHighlight = function(playerFrame, unit)
         return
     end
     ApplyOffensiveBuffVisualState(playerFrame, GetOffensiveStateForUnit(unit))
+end
+
+local function RefreshOffensiveHighlightSurfacesForUnit(unit)
+    if RefreshOffensiveBuffHighlightsForAllSelectedUnits then
+        RefreshOffensiveBuffHighlightsForAllSelectedUnits()
+    end
+    if RefreshBlizzardCompactFrameHighlightsForUnit then
+        RefreshBlizzardCompactFrameHighlightsForUnit(unit)
+    elseif RefreshBlizzardCompactFrameHighlightsForAllUnits then
+        RefreshBlizzardCompactFrameHighlightsForAllUnits()
+    end
+end
+
+local function GetOffensiveBuffDefinitionForCastSpellID(spellID)
+    spellID = GetCleanPositiveSpellID(spellID)
+    if not spellID then
+        return nil
+    end
+
+    for auraSpellID, definition in pairs(addon.OffensiveBuffList or {}) do
+        if type(definition) == "table" then
+            local castSpellID = GetCleanPositiveSpellID(definition.castSpellID) or GetCleanPositiveSpellID(auraSpellID)
+            if castSpellID == spellID and IsOffensiveBuffEnabled(auraSpellID) then
+                local tier = NormalizeOffensiveTier(definition.tier) or OFFENSIVE_TIER_MINOR
+                return auraSpellID, definition, tier
+            end
+        end
+    end
+
+    return nil
+end
+
+local function RecordOffensiveCastWindow(unit, spellID)
+    if not unit or not UnitExists(unit) or (UnitIsUnit and UnitIsUnit(unit, "player")) then
+        return
+    end
+
+    local auraSpellID, definition, tier = GetOffensiveBuffDefinitionForCastSpellID(spellID)
+    if not auraSpellID or type(definition) ~= "table" then
+        return
+    end
+
+    local castWindow = definition.castWindow
+    if not IsCleanPositiveNumber(castWindow) then
+        return
+    end
+
+    local guid = UnitGUID(unit)
+    if not guid then
+        return
+    end
+
+    offensiveCastWindowsByGUID[guid] = offensiveCastWindowsByGUID[guid] or {}
+    offensiveCastWindowsByGUID[guid][auraSpellID] = {
+        tier = tier,
+        expires = GetTime() + castWindow,
+    }
+
+    RefreshOffensiveHighlightSurfacesForUnit(unit)
+    if C_Timer and C_Timer.After then
+        C_Timer.After(castWindow, function()
+            RefreshOffensiveHighlightSurfacesForUnit(unit)
+        end)
+    end
 end
 
 local function BlizzardCompactFrameRefreshPending()
@@ -3098,6 +3219,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
     selectedPlayerFrameContainer:RegisterEvent("UNIT_AURA")
     selectedPlayerFrameContainer:RegisterEvent("UNIT_CONNECTION")
     selectedPlayerFrameContainer:RegisterEvent("UNIT_FLAGS")
+    selectedPlayerFrameContainer:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_LOGOUT")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -3136,7 +3258,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
         end
     end)
 
-    selectedPlayerFrameContainer:SetScript("OnEvent", function(self, event, unit, info)
+    selectedPlayerFrameContainer:SetScript("OnEvent", function(self, event, unit, info, spellID)
         if event == "GROUP_ROSTER_UPDATE" then
             RefreshRuntimeFrames()
         elseif event == "UNIT_CONNECTION" then
@@ -3242,6 +3364,8 @@ function addon:OnEnable() -- PLAYER_LOGIN
                 RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)
             end
             RefreshBlizzardCompactFrameHighlightsForUnit(unit)
+        elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+            RecordOffensiveCastWindow(unit, spellID)
         elseif event == "UNIT_FLAGS" then
             if unit ~= "player" then
                 local isDeadOrGhost = UnitIsDeadOrGhost(unit)

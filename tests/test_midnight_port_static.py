@@ -479,6 +479,45 @@ def test_offensive_buff_defaults_cover_major_visible_burst_windows():
     assert "1480" not in SPELL_LIST
 
 
+def test_rogue_offensive_defaults_cover_cast_based_burst_windows():
+    for spell_id, name in {
+        360194: "Deathmark",
+        385627: "Kingsbane",
+        384631: "Flagellation",
+        51690: "Killing Spree",
+        280719: "Secret Technique",
+        382245: "Cold Blood",
+        426591: "Goremaw's Bite",
+    }.items():
+        assert f"[{spell_id}] = " in SPELL_LIST
+        assert f'name = "{name}"' in SPELL_LIST
+
+    rogue_section = SPELL_LIST[
+        SPELL_LIST.index('[13750] = { name = "Adrenaline Rush"') :
+        SPELL_LIST.index('[1219480] = { name = "Ascendance"')
+    ]
+    assert 'castWindow = 16' in rogue_section
+    assert 'castWindow = 14' in rogue_section
+    assert 'castWindow = 12' in rogue_section
+    assert 'castSpellID = 185313' in rogue_section
+
+
+def test_offensive_cast_windows_use_spellcast_events_not_cooldown_apis():
+    assert 'RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")' in CORE
+    assert "RecordOffensiveCastWindow(unit, spellID)" in CORE
+    assert "GetOffensiveCastWindowStateForUnit(unit)" in function_body(CORE, "GetOffensiveStateForUnit")
+    assert "C_Spell.GetSpellCooldown" not in CORE
+    assert "C_Spell.GetSpellCharges" not in CORE
+    assert "COMBAT_LOG_EVENT_UNFILTERED" not in CORE
+
+    record_body = function_body(CORE, "RecordOffensiveCastWindow")
+    assert "GetOffensiveBuffDefinitionForCastSpellID(spellID)" in record_body
+    assert "UnitGUID(unit)" in record_body
+    assert "GetTime() + castWindow" in record_body
+    assert "C_Timer.After(castWindow" in record_body
+    assert "RefreshOffensiveHighlightSurfacesForUnit(unit)" in record_body
+
+
 def test_offensive_buff_profile_state_is_separate_from_tracked_buff_icons():
     assert "offensiveBuffs = {" in CONFIG
     assert "disabled = {}" in CONFIG
