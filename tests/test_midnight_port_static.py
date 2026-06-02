@@ -344,6 +344,18 @@ def test_tracked_buffs_use_explicit_disabled_and_custom_state():
     assert "addon.db.profile.buffList[spellId] = nil" not in CORE
 
 
+def test_tracked_buff_setting_changes_reconcile_active_icons():
+    assert "ReconcileTrackedAurasForAllSelectedUnits" in CORE
+
+    set_body = function_body(CORE, "SetTrackedBuff")
+    assert "ReconcileTrackedAurasForAllSelectedUnits()" in set_body
+
+    reconcile_all_body = function_body(CORE, "ReconcileTrackedAurasForAllSelectedUnits")
+    assert "for _, frame in ipairs(selectedPlayerFrames)" in reconcile_all_body
+    assert "if frame.unit then" in reconcile_all_body
+    assert "ReconcileTrackedAurasForUnit(frame.unit)" in reconcile_all_body
+
+
 def test_aura_payload_fields_are_secret_guarded_before_use():
     assert "GetCleanPositiveSpellID" in CORE
     assert "IsCleanAuraIcon" in CORE
@@ -530,6 +542,7 @@ def test_instance_visibility_uses_shared_policy():
     runtime_body = function_body(CORE, "IsRuntimeVisibilityAllowed")
     assert 'GetUnitClassToken("player")' in runtime_body
     assert '"EVOKER"' in runtime_body
+    assert "addon.db.profile.enabled" in runtime_body
 
     visibility_body = function_body(CORE, "ApplyInstanceVisibilityPolicy")
     assert "ShouldShowForInstanceType(instanceType)" in visibility_body
@@ -538,6 +551,7 @@ def test_instance_visibility_uses_shared_policy():
 
     enable_body = function_body(CORE, "EnableAllFrame")
     assert "IsRuntimeVisibilityAllowed()" in enable_body
+    assert "SyncProgressBarVisibility()" in enable_body
 
     regen_body = CORE[CORE.index('elseif event == "PLAYER_REGEN_ENABLED"') :]
     regen_body = regen_body[: regen_body.index('elseif event == "PLAYER_ENTERING_WORLD"')]
@@ -564,6 +578,7 @@ def test_mythic_visibility_and_auto_fill_options_refresh_runtime_frames():
     assert "AddFrameFavorite()" in refresh_body
     assert "if addon.db.profile.autoFrameFill then" in refresh_body
     assert "FrameAutoFill()" in refresh_body
+    assert "SyncRuntimeFrameVisibility()" in refresh_body
 
     options_body = function_body(CORE, "GetOptions")
     auto_section = options_body[options_body.index("autoFrame = {") : options_body.index("raid = {")]
@@ -583,15 +598,41 @@ def test_mythic_visibility_and_auto_fill_options_refresh_runtime_frames():
     spec_body = CORE[CORE.index('elseif event == "PLAYER_SPECIALIZATION_CHANGED"') :]
     spec_body = spec_body[: spec_body.index('elseif event == "UNIT_AURA"')]
     assert "RefreshRuntimeFrames()" in spec_body
+    assert "SyncRuntimeFrameVisibility()" in spec_body
 
 
 def test_frame_visibility_option_uses_toggle_value():
     frame_hide_section = CORE[CORE.index("frameHide = {") : CORE.index("autoFrame = {")]
     assert 'name = "Show Frame"' in frame_hide_section
+    assert "addon.db.profile.enabled = value" in frame_hide_section
     assert "if value then" in frame_hide_section
     assert "EnableAllFrame()" in frame_hide_section
     assert "else" in frame_hide_section
     assert "HideAllSubFrames()" in frame_hide_section
+
+
+def test_ebon_progress_bar_visibility_follows_setting_on_show_paths():
+    assert "SyncProgressBarVisibility" in CORE
+
+    sync_body = function_body(CORE, "SyncProgressBarVisibility")
+    assert "addon.db.profile.ebonmightProgressBarEnable" in sync_body
+    assert "progressBar:Show()" in sync_body
+    assert "progressBar:Hide()" in sync_body
+    assert "progressBar.text:Show()" in sync_body
+    assert "progressBar.text:Hide()" in sync_body
+
+    create_body = function_body(CORE, "CreateProgressBar")
+    assert "SyncProgressBarVisibility()" in create_body
+    assert "progressBar:Show()" not in create_body
+    assert "progressBar:Hide()" not in create_body
+
+    hide_body = function_body(CORE, "HideAllSubFrames")
+    assert "SyncProgressBarVisibility()" not in hide_body
+    assert "progressBar:Hide()" in hide_body
+
+    enable_body = function_body(CORE, "EnableAllFrame")
+    assert "SyncProgressBarVisibility()" in enable_body
+    assert "progressBar:Show()" not in enable_body
 
 
 def test_favorite_list_mutations_keep_compact_array():

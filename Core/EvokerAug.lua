@@ -27,6 +27,8 @@ local instanceContextGeneration = 0
 local CheckShoworHide
 local HideAllSubFrames
 local EnableAllFrame
+local ReconcileTrackedAurasForAllSelectedUnits
+local RefreshRuntimeFrames
 local GetUnitClassToken
 local GetHomePartyInfos
 local RightMenu
@@ -118,8 +120,26 @@ local function ShouldShowForInstanceType(instanceType)
     return true
 end
 
+local function IsRuntimeContextAllowed()
+    if GetUnitClassToken("player") ~= "EVOKER" then
+        return false
+    end
+
+    local currentSpec = GetSpecialization()
+    if currentSpec and currentSpec ~= 3 then
+        return false
+    end
+
+    local _, instanceType = IsInInstance()
+    return ShouldShowForInstanceType(instanceType)
+end
+
 local function IsRuntimeVisibilityAllowed()
     if GetUnitClassToken("player") ~= "EVOKER" then
+        return false
+    end
+
+    if addon.db and addon.db.profile and addon.db.profile.enabled == false then
         return false
     end
 
@@ -205,7 +225,7 @@ local function IsTrackedBuffEnabled(spellID)
 end
 
 local function SetTrackedBuff(spellID, spellName, enabled, isCustom)
-    spellID = tonumber(spellID)
+    spellID = GetCleanPositiveSpellID(spellID)
     if not spellID or not spellName then
         return
     end
@@ -227,6 +247,10 @@ local function SetTrackedBuff(spellID, spellName, enabled, isCustom)
             addon.db.profile.disabledBuffList[spellID] = nil
             addon.db.profile.customBuffList[spellID] = nil
         end
+    end
+
+    if ReconcileTrackedAurasForAllSelectedUnits then
+        ReconcileTrackedAurasForAllSelectedUnits()
     end
 end
 
@@ -473,8 +497,11 @@ local sortTypes = {
 
 CheckShoworHide = function()
     if selectedPlayerFrameContainer and selectedPlayerFrameContainer:IsShown() then
+        addon.db.profile.enabled = false
         HideAllSubFrames()
     else
+        addon.db.profile.enabled = true
+        RefreshRuntimeFrames()
         EnableAllFrame()
     end
 end
@@ -485,6 +512,28 @@ local function createMiniMapIcon()
 end
 
 -- Ebon Might Proggres Bar
+
+local function SyncProgressBarVisibility()
+    if not progressBar then
+        return
+    end
+
+    local shouldShow = addon.db.profile.ebonmightProgressBarEnable
+        and selectedPlayerFrameContainer
+        and selectedPlayerFrameContainer:IsShown()
+
+    if shouldShow then
+        progressBar:Show()
+        if progressBar.text then
+            progressBar.text:Show()
+        end
+    else
+        progressBar:Hide()
+        if progressBar.text then
+            progressBar.text:Hide()
+        end
+    end
+end
 
 local function CreateProgressBar()
     if not CanMutateProtectedFrames() then
@@ -505,8 +554,6 @@ local function CreateProgressBar()
             progressBar.text = progressBar:CreateFontString(nil, "OVERLAY", "GameFontNormal")
             progressBar.text:SetPoint("CENTER", progressBar, "CENTER")
             progressBar.text:SetText("Ebon Might")
-        else
-            progressBar:Show()
         end
 
 
@@ -525,12 +572,11 @@ local function CreateProgressBar()
 
             progressBar:SetValue((remainingTime / aura.duration) * 100)
         end)
-    elseif not addon.db.profile.ebonmightProgressBarEnable and progressBar then
+    elseif not addon.db.profile.ebonmightProgressBarEnable then
         selectedPlayerFrameContainer:SetScript("OnUpdate", nil)
-        if progressBar then
-            progressBar:Hide()
-        end
     end
+
+    SyncProgressBarVisibility()
 end
 
 ---- Player Buffs Icon -----
@@ -1099,6 +1145,14 @@ local function ReconcileTrackedAurasForUnit(unit)
     AddBuffIcons(selectedPlayerFrames[frameIndex], unit)
 end
 
+ReconcileTrackedAurasForAllSelectedUnits = function()
+    for _, frame in ipairs(selectedPlayerFrames) do
+        if frame.unit then
+            ReconcileTrackedAurasForUnit(frame.unit)
+        end
+    end
+end
+
 local function GetPlayerFrameIndexByIdentity(identityKey)
     if not identityKey then
         return nil
@@ -1158,6 +1212,12 @@ local function ApplyInstanceVisibilityPolicy()
     local _, instanceType = IsInInstance()
     if ShouldShowForInstanceType(instanceType) and IsRuntimeVisibilityAllowed() then
         return true
+    end
+
+    -- WHY: manual Show Frame off hides rows without clearing the user's selected/favorite frame state.
+    if IsRuntimeContextAllowed() then
+        HideAllSubFrames()
+        return false
     end
 
     DeleteAllSelectedPlayerFrames()
@@ -1298,7 +1358,15 @@ local function GroupUpdate()
     end
 end
 
-local function RefreshRuntimeFrames()
+local function SyncRuntimeFrameVisibility()
+    if IsRuntimeVisibilityAllowed() then
+        EnableAllFrame()
+    else
+        HideAllSubFrames()
+    end
+end
+
+RefreshRuntimeFrames = function()
     if not selectedPlayerFrameContainer then
         return
     end
@@ -1312,6 +1380,7 @@ local function RefreshRuntimeFrames()
     if addon.db.profile.autoFrameFill then
         FrameAutoFill()
     end
+    SyncRuntimeFrameVisibility()
 end
 
 local function GetClasses()
@@ -1597,7 +1666,9 @@ local function GetOptions()
                             return selectedPlayerFrameContainer:IsShown()
                         end,
                         set = function(info, value)
+                            addon.db.profile.enabled = value
                             if value then
+                                RefreshRuntimeFrames()
                                 EnableAllFrame()
                             else
                                 HideAllSubFrames()
@@ -2248,6 +2319,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
                         HideAllSubFrames()
                     else
                         RefreshRuntimeFrames()
+                        SyncRuntimeFrameVisibility()
                     end
                 end
             end
@@ -2494,10 +2566,7 @@ EnableAllFrame = function()
     if addonNameText then
         addonNameText:Show()
     end
-    if progressBar then
-        progressBar:Show()
-        progressBar.text:Show()
-    end
+    SyncProgressBarVisibility()
 end
 
 IsFavorite = function(name)
