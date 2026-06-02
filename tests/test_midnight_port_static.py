@@ -106,6 +106,44 @@ def test_party_member_unit_tokens_are_preserved_instead_of_rebuilt_from_indices(
         assert '"raid" .. i' not in body, name
 
 
+def test_party_frames_use_stable_identity_keys_not_short_names():
+    assert "GetUnitIdentity" in CORE
+    assert "GetPlayerFrameIndexByIdentity" in CORE
+    assert "IsPlayerFrameByIdentity" in CORE
+
+    add_home_body = function_body(CORE, "AddHomePartyInfo")
+    assert "local identityKey, name = GetUnitIdentity(unit)" in add_home_body
+    assert "identityKey = identityKey" in add_home_body
+
+    create_body = function_body(CORE, "CreateSelectedPlayerFrame")
+    assert "identityKey = identityKey or playerName" in create_body
+    assert "selectedPlayerFrames[frameIndex].identityKey = identityKey" in create_body
+    assert "checkboxStates[identityKey] = true" in create_body
+    assert "checkboxStates[playerName] = true" not in create_body
+
+    index_body = function_body(CORE, "GetPlayerFrameIndexByIdentity")
+    assert "if not identityKey then" in index_body
+    assert "frame.identityKey == identityKey" in index_body
+    assert "frame.playerName == name" not in index_body
+
+    delete_body = function_body(CORE, "DeleteSelectedPlayerFrame")
+    assert "if not identityKey then" in delete_body
+    assert "local playerIndex = GetPlayerFrameIndexByIdentity(identityKey)" in delete_body
+    assert "checkboxStates[identityKey] = nil" in delete_body
+    assert "checkboxStates[playerName] = false" not in CORE
+
+    delete_all_body = function_body(CORE, "DeleteAllSelectedPlayerFrames")
+    assert "frame.identityKey or frame.playerName" in delete_all_body
+
+    for name in ("FrameAutoFill", "GroupUpdate", "RightMenu"):
+        body = function_body(CORE, name)
+        assert "member.identityKey" in body, name
+
+    favorite_body = function_body(CORE, "AddFavoriteFrameForUnit")
+    assert "identityKey" in favorite_body
+    assert "IsPlayerFrameByIdentity(identityKey)" in favorite_body
+
+
 def test_group_update_removes_frames_without_forward_ipairs_mutation():
     body = function_body(CORE, "GroupUpdate")
     assert "for i = #selectedPlayerFrames, 1, -1 do" in body
@@ -120,7 +158,7 @@ def test_group_update_refreshes_role_class_and_unit_changes():
     assert "frame.role ~= member.role" in body
     assert "frame.class ~= member.class" in body
     assert "unitCheckChanged or roleChanged or classChanged" in body
-    assert "CreateSelectedPlayerFrame(playerName, memberClass, memberRole, unit, unittt)" in body
+    assert "CreateSelectedPlayerFrame(memberName, memberClass, memberRole, unit, unittt, identityKey)" in body
 
 
 def test_deleted_and_reconfigured_frames_clear_buff_tickers():
@@ -380,9 +418,16 @@ def test_favorite_list_mutations_keep_compact_array():
     assert "GetOrderedFavoriteList()" in normalize_body
     assert "favList[key] = nil" in normalize_body
 
+    rank_body = function_body(CORE, "GetFavoriteRank")
+    assert "GetOrderedFavoriteList()" in rank_body
+
+    compare_body = function_body(CORE, "CompareFavoriteRank")
+    assert "GetFavoriteRank(a.identityKey)" in compare_body
+    assert "GetFavoriteRank(b.identityKey)" in compare_body
+
     for sort_name in ("sortFramesByName", "sortFramesByClass", "sortFramesByRole"):
         sort_body = function_body(CORE, sort_name)
-        assert "GetOrderedFavoriteList()" in sort_body
+        assert "CompareFavoriteRank(a, b)" in sort_body
         assert "ipairs(favList)" not in sort_body
 
     options_body = function_body(CORE, "GetOptions")

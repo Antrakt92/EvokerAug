@@ -19,25 +19,6 @@ speculative cleanup ideas without a concrete failure path.
 
 ## T2 High
 
-### EVA-T2-002: Use stable player identity keys instead of short display names
-
-- Evidence: `Core\EvokerAug.lua::GetCharacterName`, `AddHomePartyInfo`,
-  `CreateSelectedPlayerFrame`, `GetPlayerFrameIndexByName`,
-  `IsPlayerFrameByName`, `checkboxStates`, `RightMenu`, and favorites use short
-  character names as state keys.
-- Current behavior: realm is stripped or ignored for frame lookup, menu checked
-  state, deletion, and favorite matching; `DeleteSelectedPlayerFrame` also
-  leaves `false` tombstones in `checkboxStates`.
-- Impact: same-name cross-realm party/raid members can collapse into one UI
-  entry or secure frame, and stale checkbox keys can accumulate in clear/exit
-  loops.
-- Suggested fix direction: store an `identityKey` such as `Name-Realm` or
-  `UnitGUID` separately from display text; key `selectedPlayerFrames`,
-  `checkboxStates`, and favorites by identity; delete state entries with `nil`.
-- Tests/verification: simulate or join a group with two same-name different-
-  realm members and confirm both can be shown, removed, sorted, and clicked
-  independently.
-
 ### EVA-T2-004: Centralize profile apply/reset/switch lifecycle
 
 - Evidence: `Core\EvokerAug.lua::OnInitialize` registers only `OnProfileReset`;

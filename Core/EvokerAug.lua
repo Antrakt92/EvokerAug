@@ -321,38 +321,64 @@ local function RemoveFavoriteName(name)
     end
 end
 
-local function sortFramesByName(a, b)
-    for _, v in ipairs(GetOrderedFavoriteList()) do
-        local playerName = GetCharacterName(v)
-        if a.playerName == playerName then
-            return true
-        elseif b.playerName == playerName then
-            return false
+local function GetFavoriteRank(identityKey)
+    if not identityKey then
+        return nil
+    end
+
+    for index, favoriteName in ipairs(GetOrderedFavoriteList()) do
+        if favoriteName == identityKey then
+            return index
         end
+    end
+
+    return nil
+end
+
+local function CompareFavoriteRank(a, b)
+    local aRank = GetFavoriteRank(a.identityKey)
+    local bRank = GetFavoriteRank(b.identityKey)
+    if aRank and bRank then
+        return aRank < bRank
+    end
+    if aRank then
+        return true
+    end
+    if bRank then
+        return false
+    end
+    return nil
+end
+
+local function sortFramesByName(a, b)
+    local favoriteOrder = CompareFavoriteRank(a, b)
+    if favoriteOrder ~= nil then
+        return favoriteOrder
+    end
+    if a.playerName == b.playerName then
+        return (a.identityKey or a.playerName) < (b.identityKey or b.playerName)
     end
     return a.playerName < b.playerName
 end
 
 local function sortFramesByClass(a, b)
-    for _, v in ipairs(GetOrderedFavoriteList()) do
-        local playerName = GetCharacterName(v)
-        if a.playerName == playerName then
-            return true
-        elseif b.playerName == playerName then
-            return false
-        end
+    local favoriteOrder = CompareFavoriteRank(a, b)
+    if favoriteOrder ~= nil then
+        return favoriteOrder
+    end
+    if a.class == b.class then
+        return sortFramesByName(a, b)
     end
     return a.class < b.class
 end
 
 local function sortFramesByRole(a, b)
-    for _, v in ipairs(GetOrderedFavoriteList()) do
-        local playerName = GetCharacterName(v)
-        if a.playerName == playerName then
-            return true
-        elseif b.playerName == playerName then
-            return false
-        end
+    local favoriteOrder = CompareFavoriteRank(a, b)
+    if favoriteOrder ~= nil then
+        return favoriteOrder
+    end
+    if a.role == b.role then
+        return sortFramesByName(a, b)
     end
     return a.role < b.role
 end
@@ -443,6 +469,31 @@ function GetCharacterName(fullName)
     else
         return nil
     end
+end
+
+local function BuildIdentityKey(name, realm)
+    if not name or name == "" then
+        return nil, nil
+    end
+
+    if string.find(name, "-") then
+        return name, GetCharacterName(name)
+    end
+
+    if not realm or realm == "" then
+        realm = GetRealmName()
+    end
+
+    if realm and realm ~= "" then
+        return name .. "-" .. realm, name
+    end
+
+    return name, name
+end
+
+local function GetUnitIdentity(unit)
+    local name, realm = UnitName(unit)
+    return BuildIdentityKey(name, realm)
 end
 
 local function GetClassRGB(class)
@@ -847,13 +898,14 @@ local function ApplySpellIconSize()
     end
 end
 
-local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitIndex, unittt)
+local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitIndex, unittt, identityKey)
     if not CanMutateProtectedFrames() then
         MarkProtectedFrameRefreshPending()
         return
     end
+    identityKey = identityKey or playerName
     local frameIndex = #selectedPlayerFrames + 1
-    checkboxStates[playerName] = true
+    checkboxStates[identityKey] = true
     selectedPlayerFrames[frameIndex] = CreateFrame("Button", "EvokerAugPartyFrame" .. unittt, UIParent,
         BackdropTemplateMixin and "BackdropTemplate,SecureActionButtonTemplate,SecureUnitButtonTemplate" or
         "SecureActionButtonTemplate,SecureUnitButtonTemplate")
@@ -861,6 +913,7 @@ local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitInde
     selectedPlayerFrames[frameIndex]["buff"] = {}
     selectedPlayerFrames[frameIndex]["buff"].xOffset = 0
     selectedPlayerFrames[frameIndex].playerName = playerName
+    selectedPlayerFrames[frameIndex].identityKey = identityKey
     selectedPlayerFrames[frameIndex].class = class
     selectedPlayerFrames[frameIndex].role = PlayerRole
     selectedPlayerFrames[frameIndex].texture = selectedPlayerFrames[frameIndex]:CreateTexture()
@@ -925,38 +978,40 @@ local function ReconcileTrackedAurasForUnit(unit)
     AddBuffIcons(selectedPlayerFrames[frameIndex], unit)
 end
 
-local function GetPlayerFrameIndexByName(name)
+local function GetPlayerFrameIndexByIdentity(identityKey)
+    if not identityKey then
+        return nil
+    end
+
     for i, frame in ipairs(selectedPlayerFrames) do
-        if frame.playerName == name then
+        if frame.identityKey == identityKey then
             return i
         end
     end
     return nil
 end
 
-local function IsPlayerFrameByName(name)
-    for i, frame in ipairs(selectedPlayerFrames) do
-        if frame.playerName == name then
-            return true
-        end
-    end
-    return false
+local function IsPlayerFrameByIdentity(identityKey)
+    return GetPlayerFrameIndexByIdentity(identityKey) ~= nil
 end
 
-local function DeleteSelectedPlayerFrame(playerName, skipSort)
+local function DeleteSelectedPlayerFrame(identityKey, skipSort)
     if not CanMutateProtectedFrames() then
         MarkProtectedFrameRefreshPending()
         return
     end
+    if not identityKey then
+        return
+    end
 
-    local playerIndex = GetPlayerFrameIndexByName(playerName)
+    local playerIndex = GetPlayerFrameIndexByIdentity(identityKey)
     if playerIndex and selectedPlayerFrames[playerIndex] then
         ClearBuffIcons(selectedPlayerFrames[playerIndex])
         selectedPlayerFrames[playerIndex]:Hide()
         selectedPlayerFrames[playerIndex]:ClearAllPoints()
         selectedPlayerFrames[playerIndex]:SetParent(nil)
         table.remove(selectedPlayerFrames, playerIndex)
-        checkboxStates[playerName] = false
+        checkboxStates[identityKey] = nil
         if not skipSort then
             SortType()
         end
@@ -970,15 +1025,21 @@ local function DeleteSelectedPlayerFrame(playerName, skipSort)
     end
 end
 
+local function DeleteAllSelectedPlayerFrames()
+    for i = #selectedPlayerFrames, 1, -1 do
+        local frame = selectedPlayerFrames[i]
+        DeleteSelectedPlayerFrame(frame.identityKey or frame.playerName, true)
+    end
+    SortType()
+end
+
 local function ApplyInstanceVisibilityPolicy()
     local _, instanceType = IsInInstance()
     if ShouldShowForInstanceType(instanceType) and IsRuntimeVisibilityAllowed() then
         return true
     end
 
-    for playerName in pairs(checkboxStates) do
-        DeleteSelectedPlayerFrame(playerName)
-    end
+    DeleteAllSelectedPlayerFrames()
     HideAllSubFrames()
     return false
 end
@@ -988,30 +1049,24 @@ local function AddFavoriteFrameForUnit(unitID)
         return
     end
 
-    local fullName, realm = UnitName(unitID)
+    local identityKey, name = GetUnitIdentity(unitID)
     local class = GetUnitClassToken(unitID)
-    if not fullName or not class then
+    if not identityKey or not name or not class then
         return
     end
 
-    if not realm or realm == "" then
-        realm = GetRealmName()
-        fullName = fullName .. "-" .. realm
-    end
-
-    if not IsFavorite(fullName) then
+    if not IsFavorite(identityKey) then
         return
     end
 
     local combatRole = UnitGroupRolesAssigned(unitID)
-    local name = GetCharacterName(fullName)
     if combatRole == "DAMAGER" then
         combatRole = "DPS"
     end
 
-    if name and combatRole and not IsPlayerFrameByName(name) then
+    if name and combatRole and not IsPlayerFrameByIdentity(identityKey) then
         class = strupper(string.gsub(class, "%s+", ""))
-        CreateSelectedPlayerFrame(name, class, combatRole, unitID, unitID)
+        CreateSelectedPlayerFrame(name, class, combatRole, unitID, unitID, identityKey)
     end
 end
 
@@ -1046,13 +1101,13 @@ local function FrameAutoFill()
             local unit = member.unit
             if member.role ~= "HEALER" and unit ~= "player" then
                 for _, frame in ipairs(selectedPlayerFrames) do
-                    if frame.playerName == member.name then
+                    if frame.identityKey == member.identityKey then
                         memberInParty = true
                         break
                     end
                 end
                 if not memberInParty then
-                    CreateSelectedPlayerFrame(member.name, member.class, member.role, unit, member.unit)
+                    CreateSelectedPlayerFrame(member.name, member.class, member.role, unit, member.unit, member.identityKey)
                 end
             end
         end
@@ -1070,22 +1125,24 @@ local function GroupUpdate()
 
     for i = #selectedPlayerFrames, 1, -1 do
         local frame = selectedPlayerFrames[i]
-        local playerName = frame.playerName
+        local identityKey = frame.identityKey or frame.playerName
         local memberInParty = false
         local unitCheckChanged = false
         local roleChanged = false
         local classChanged = false
         local isOffline = false
+        local memberName
         local memberClass
         local memberRole
         local unittt
         local unit
 
         for _, member in ipairs(partyMembers) do
-            if member.name == playerName then
+            if member.identityKey == identityKey then
                 memberInParty = true
                 unit = member.unit
                 unittt = unit
+                memberName = member.name
                 memberClass = member.class
                 memberRole = member.role
                 roleChanged = frame.role ~= member.role
@@ -1102,15 +1159,15 @@ local function GroupUpdate()
 
         if memberInParty then
             if isOffline then
-                DeleteSelectedPlayerFrame(playerName, true)
+                DeleteSelectedPlayerFrame(identityKey, true)
                 needsSort = true
             elseif unitCheckChanged or roleChanged or classChanged then
-                DeleteSelectedPlayerFrame(playerName, true)
-                CreateSelectedPlayerFrame(playerName, memberClass, memberRole, unit, unittt)
+                DeleteSelectedPlayerFrame(identityKey, true)
+                CreateSelectedPlayerFrame(memberName, memberClass, memberRole, unit, unittt, identityKey)
                 needsSort = true
             end
         else
-            DeleteSelectedPlayerFrame(playerName, true)
+            DeleteSelectedPlayerFrame(identityKey, true)
             needsSort = true
         end
     end
@@ -1950,9 +2007,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
                         if not addon.db.profile.autoFrameFill or not IsCurrentInstanceContext(generation, "none") then
                             return
                         end
-                        for playerName in pairs(checkboxStates) do
-                            DeleteSelectedPlayerFrame(playerName)
-                        end
+                        DeleteAllSelectedPlayerFrames()
                     end)
                 end
             end
@@ -2118,21 +2173,20 @@ local function AddHomePartyInfo(partyMembers, unit)
         return
     end
 
-    local fullName = UnitName(unit)
+    local identityKey, name = GetUnitIdentity(unit)
     local class = GetUnitClassToken(unit)
-    if not fullName or not class then
+    if not identityKey or not name or not class then
         return
     end
 
     local combatRole = UnitGroupRolesAssigned(unit)
-    local name = GetCharacterName(fullName)
     if combatRole == "DAMAGER" then
         combatRole = "DPS"
     end
 
     if name and combatRole then
         table.insert(partyMembers,
-            { name = name, class = strupper(string.gsub(class, "%s+", "")), role = combatRole, unit = unit })
+            { name = name, identityKey = identityKey, class = strupper(string.gsub(class, "%s+", "")), role = combatRole, unit = unit })
     end
 end
 
@@ -2148,16 +2202,16 @@ function GetHomePartyInfos()
             AddHomePartyInfo(partyMembers, "party" .. i)
         end
     else
-        local name = UnitName("player")
+        local identityKey, name = GetUnitIdentity("player")
         local class = GetUnitClassToken("player")
         local specializationIndex = GetSpecialization() or 0
         local _, _, _, _, combatRole, _ = GetSpecializationInfo(specializationIndex)
         if combatRole == "DAMAGER" then
             combatRole = "DPS"
         end
-        if name and class and combatRole then
+        if identityKey and name and class and combatRole then
             table.insert(partyMembers,
-                { name = name, class = strupper(string.gsub(class, "%s+", "")), role = combatRole, unit = "player" })
+                { name = name, identityKey = identityKey, class = strupper(string.gsub(class, "%s+", "")), role = combatRole, unit = "player" })
         end
     end
 
@@ -2172,13 +2226,13 @@ function RightMenu(owner, MenuDesc)
     for i, member in ipairs(partyMembers) do
         table.insert(PartyList, {
             text = member.name .. ' (' .. member.role .. ')',
-            checked = function() return checkboxStates[member.name] end,
+            checked = function() return checkboxStates[member.identityKey] end,
             func = function(xxxx, arg1, arg2)
-                if checkboxStates[member.name] then
-                    DeleteSelectedPlayerFrame(member.name)
+                if checkboxStates[member.identityKey] then
+                    DeleteSelectedPlayerFrame(member.identityKey)
                 else
                     local unit = member.unit
-                    CreateSelectedPlayerFrame(member.name, member.class, member.role, unit, member.unit)
+                    CreateSelectedPlayerFrame(member.name, member.class, member.role, unit, member.unit, member.identityKey)
                 end
             end,
             index = i,
@@ -2192,10 +2246,7 @@ function RightMenu(owner, MenuDesc)
     end
     MenuDesc:CreateButton('Auto Fill (M+)', function() FrameAutoFill() end)
     MenuDesc:CreateButton('Clear Frame', function()
-        for i, frame in pairs(checkboxStates) do
-            local playerName = i
-            DeleteSelectedPlayerFrame(playerName)
-        end
+        DeleteAllSelectedPlayerFrames()
     end)
     MenuDesc:CreateDivider()
     MenuDesc:CreateTitle('Setting')

@@ -30,6 +30,7 @@
 - Fixed release packaging so public release notes use the curated changelog.
 - Fixed tracked-buff persistence so disabled default buffs and saved custom spell IDs survive reloads.
 - Fixed incremental aura updates so disabled tracked buffs cannot reappear between full aura refreshes.
+- Fixed party-frame identity so same-name players from different realms no longer collapse into one frame.
 
 ### Added
 
