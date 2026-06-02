@@ -1,5 +1,7 @@
 from pathlib import Path
 import re
+import subprocess
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +16,7 @@ WORKFLOW = (ROOT / ".github" / "workflows" / "build.yml").read_text(encoding="ut
 CHANGELOG = ROOT / "CHANGELOG.md"
 PACKAGE_SCRIPT = ROOT / "scripts" / "package-local.ps1"
 INSTALL_SCRIPT = ROOT / "scripts" / "install-local-junction.ps1"
+RELEASE_VERSION_SCRIPT = ROOT / "scripts" / "check-release-version.py"
 
 
 def function_body(source: str, name: str) -> str:
@@ -801,10 +804,49 @@ def test_release_workflow_gates_packager_on_static_checks():
     assert re.search(r"(?m)^  preflight:\s*$", WORKFLOW)
     assert re.search(r"(?m)^  packager:\s*$", WORKFLOW)
     assert re.search(r"(?m)^    needs: preflight\s*$", WORKFLOW)
+    assert 'python scripts/check-release-version.py --tag "$GITHUB_REF_NAME"' in WORKFLOW
     assert "python -m pip install pytest" in WORKFLOW
     assert "python -m pytest tests/test_midnight_port_static.py -q" in WORKFLOW
     assert "sudo apt-get install -y lua5.1" in WORKFLOW
     assert "luac5.1 -p Core/Config.lua Core/EvokerAug.lua Core/SpellList.lua" in WORKFLOW
+
+
+def test_release_version_preflight_accepts_matching_metadata():
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(RELEASE_VERSION_SCRIPT),
+            "--root",
+            str(ROOT),
+            "--tag",
+            "v1.0.24-midnight.1",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_release_version_preflight_rejects_mismatched_tag():
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(RELEASE_VERSION_SCRIPT),
+            "--root",
+            str(ROOT),
+            "--tag",
+            "v9.9.9",
+        ],
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode != 0
+    assert "EvokerAug.toc" in result.stderr
+    assert "Core/Config.lua" in result.stderr
+    assert "CHANGELOG.md" in result.stderr
+    assert "scripts/package-local.ps1" in result.stderr
 
 
 def test_local_package_script_documents_expected_zip_surface():
