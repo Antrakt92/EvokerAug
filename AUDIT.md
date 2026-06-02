@@ -183,22 +183,21 @@ speculative cleanup ideas without a concrete failure path.
 - Tests/verification: `/aug` toggle off/on should hide/show predictably; switch
   off Augmentation and confirm minimap right-click does not reshow frames.
 
-### EVA-T2-010: Apply buff layout settings coherently to existing frames
+### EVA-T2-010: Apply buff icon layout settings coherently to existing frames
 
-- Evidence: `presciencebar` only flips `prescienceBarEnable`;
-  `AddBuffIcon`/`RepositionBuffIcons` advance icon offsets by `buttonHeight`
-  while icon textures use `spellIconSize`; icon-size changes do not reposition
-  existing icons.
-- Current behavior: disabling Prescience Bar while a buff is active can leave a
-  partial row texture frozen, and icon size/frame height combinations can cause
-  overlap or large gaps.
-- Impact: visible buff rows can be misleading or visually broken after settings
-  changes.
-- Suggested fix direction: add combat-gated apply helpers for Prescience mode,
-  icon size, icon text size, and icon spacing; space icons by `spellIconSize` or
-  an explicit spacing setting.
-- Tests/verification: toggle Prescience Bar during an active buff and vary frame
-  height/icon size with multiple buffs active.
+- Evidence: `AddBuffIcon`/`RepositionBuffIcons` advance icon offsets by
+  `buttonHeight` while icon textures use `spellIconSize`; icon-size changes
+  resize existing icons but do not reposition them.
+- Current behavior: icon size/frame height combinations can cause overlap or
+  large gaps, and resizing active icons can leave old spacing until buffs are
+  removed/re-added.
+- Impact: visible buff icons can become misleading or visually broken after
+  settings changes.
+- Suggested fix direction: add a combat-aware apply helper for icon size, icon
+  text size, and icon spacing; space icons by `spellIconSize` or an explicit
+  spacing setting and call `RepositionBuffIcons` after icon-size changes.
+- Tests/verification: vary frame height/icon size with multiple buffs active
+  and confirm icons remain evenly spaced.
 
 ### EVA-T2-011: Guard context-menu favorite hooks by payload shape
 

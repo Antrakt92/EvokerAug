@@ -16,6 +16,7 @@
 - Fixed custom spell option icons, class-colour fallback, OmniCD reload handling, and combat-gated frame-height/progress-bar settings.
 - Fixed local package output so backup folders are excluded from manual test zips.
 - Changed the default frame state to unlocked so new profiles can position the frame immediately, then lock it from the right-click menu.
+- Improved the Prescience Bar so party rows use a dark track with a class-coloured fill that shrinks as Prescience expires.
 
 ### Added
 

@@ -164,8 +164,41 @@ def test_omnicd_toggle_uses_wow_reloadui_api():
 def test_class_color_reads_have_unknown_class_fallback():
     assert "GetClassRGB" in CORE
     assert CORE.count("GetClassRGB(") >= 3
-    assert "SetBackdropColor(classR, classG, classB" in CORE
+    assert "SetVertexColor(classR, classG, classB" in CORE
     assert "RAID_CLASS_COLORS" in CORE
+
+
+def test_prescience_bar_uses_class_fill_over_dark_track():
+    assert "local PRESCIENCE_ICON_ID = 5199639" in CORE
+    assert "local PLAYER_FRAME_WIDTH = 150" in CORE
+    assert "ApplyPrescienceBarFill" in CORE
+
+    helper_body = function_body(CORE, "ApplyPrescienceBarFill")
+    assert "PLAYER_FRAME_WIDTH * (remaining / startDuration)" in helper_body
+    assert "math.min(PLAYER_FRAME_WIDTH" in helper_body
+    assert "math.max(1" in helper_body
+    assert "RefreshPrescienceBarFill" in CORE
+
+    create_body = function_body(CORE, "CreateSelectedPlayerFrame")
+    assert "SetBackdropColor(0.08, 0.08, 0.08" in create_body
+    assert "ApplyPrescienceBarFill(selectedPlayerFrames[frameIndex], nil, nil)" in create_body
+
+    add_body = function_body(CORE, "AddBuffIcon")
+    assert "icon == PRESCIENCE_ICON_ID" in add_body
+    assert "ApplyPrescienceBarFill(playerFrame, timestamp, startTimer)" in add_body
+
+    remove_body = function_body(CORE, "RemoveBuffIcon")
+    assert "iconFrame.iconid == PRESCIENCE_ICON_ID" in remove_body
+    assert "ApplyPrescienceBarFill(playerFrame, nil, nil)" in remove_body
+
+    clear_body = function_body(CORE, "ClearBuffIcons")
+    assert "ApplyPrescienceBarFill(playerFrame, nil, nil)" in clear_body
+
+    height_body = function_body(CORE, "ApplyButtonHeight")
+    assert "RefreshPrescienceBarFill(frame)" in height_body
+
+    options_body = function_body(CORE, "GetOptions")
+    assert "RefreshPrescienceBarFill(frame)" in options_body
 
 
 def test_settings_frame_mutations_are_combat_gated():

@@ -19,6 +19,8 @@ local LibCustomGlow = LibStub("LibCustomGlow-1.0")
 local DeadorGhostData = {}
 local issecretvalue = _G.issecretvalue or function() return false end
 local EBON_MIGHT_SPELL_IDS = { 395296, 395152 }
+local PRESCIENCE_ICON_ID = 5199639
+local PLAYER_FRAME_WIDTH = 150
 local pendingProtectedFrameRefresh = false
 
 local function IsCleanNumber(value)
@@ -282,6 +284,43 @@ local function RepositionBuffIcons(playerFrame)
     end
 end
 
+local function ApplyPrescienceBarFill(playerFrame, expirationTime, startDuration)
+    if not playerFrame or not playerFrame.texture then
+        return
+    end
+
+    local width = addon.db.profile.prescienceBarEnable and 1 or PLAYER_FRAME_WIDTH
+    if addon.db.profile.prescienceBarEnable and IsCleanPositiveNumber(expirationTime) and IsCleanPositiveNumber(startDuration) then
+        local remaining = expirationTime - GetTime()
+        if remaining > 0 then
+            width = PLAYER_FRAME_WIDTH * (remaining / startDuration)
+            width = math.max(1, math.min(PLAYER_FRAME_WIDTH, width))
+        end
+    end
+
+    playerFrame.texture:SetSize(width, addon.db.profile.buttonHeight)
+end
+
+local function RefreshPrescienceBarFill(playerFrame)
+    local buff = playerFrame and playerFrame["buff"]
+    if not buff then
+        ApplyPrescienceBarFill(playerFrame, nil, nil)
+        return
+    end
+
+    for auraInstanceID, iconFrame in pairs(buff) do
+        if type(iconFrame) == "table" and iconFrame.iconid == PRESCIENCE_ICON_ID then
+            local text = buff[auraInstanceID .. "Text"]
+            if text then
+                ApplyPrescienceBarFill(playerFrame, text.timestamp, text.starttimestamp)
+                return
+            end
+        end
+    end
+
+    ApplyPrescienceBarFill(playerFrame, nil, nil)
+end
+
 local function ClearBuffIcons(playerFrame)
     local buff = playerFrame and playerFrame["buff"]
     if not buff then
@@ -315,6 +354,7 @@ local function ClearBuffIcons(playerFrame)
     end
 
     buff.xOffset = 0
+    ApplyPrescienceBarFill(playerFrame, nil, nil)
 end
 
 local function RemoveBuffIcon(playerFrame, buffID)
@@ -324,7 +364,8 @@ local function RemoveBuffIcon(playerFrame, buffID)
         return
     end
 
-    if iconFrame.iconid == 5199639 and addon.db.profile.prescienceBuffSoundName ~= "None" then
+    local isPrescience = iconFrame.iconid == PRESCIENCE_ICON_ID
+    if isPrescience and addon.db.profile.prescienceBuffSoundName ~= "None" then
         PlaySoundFile(addon.db.profile.prescienceBuffSoundFile, "Master")
     end
     if iconFrame.glow then
@@ -346,6 +387,10 @@ local function RemoveBuffIcon(playerFrame, buffID)
     iconFrame:SetParent(nil)
     buff[buffID] = nil
 
+    if isPrescience then
+        ApplyPrescienceBarFill(playerFrame, nil, nil)
+    end
+
     RepositionBuffIcons(playerFrame)
 end
 
@@ -357,6 +402,9 @@ local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTi
         if playerFrame["buff"][auraInstanceID .. "Text"] then
             playerFrame["buff"][auraInstanceID .. "Text"].timestamp = timestamp
             playerFrame["buff"][auraInstanceID .. "Text"].starttimestamp = startTimer
+        end
+        if icon == PRESCIENCE_ICON_ID then
+            ApplyPrescienceBarFill(playerFrame, timestamp, startTimer)
         end
         return
     end
@@ -376,6 +424,9 @@ local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTi
     playerFrame["buff"][auraInstanceID .. "Text"]:Show()
     playerFrame["buff"][auraInstanceID .. "Text"].timestamp = timestamp
     playerFrame["buff"][auraInstanceID .. "Text"].starttimestamp = startTimer
+    if icon == PRESCIENCE_ICON_ID then
+        ApplyPrescienceBarFill(playerFrame, timestamp, startTimer)
+    end
     playerFrame["buff"][auraInstanceID .. "Text"].ticker = C_Timer.NewTicker(1, function()
         local buff = playerFrame["buff"]
         local text = buff and buff[auraInstanceID .. "Text"]
@@ -390,13 +441,8 @@ local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTi
         end
 
         local duration = expirationTime - GetTime()
-        if addon.db.profile.prescienceBarEnable and icon == 5199639 then
-            local remainingWidth = 150 * (duration / startDuration)
-            if duration <= 0 then
-                playerFrame.texture:SetSize(1, addon.db.profile.buttonHeight)
-            else
-                playerFrame.texture:SetSize(remainingWidth, addon.db.profile.buttonHeight)
-            end
+        if icon == PRESCIENCE_ICON_ID then
+            ApplyPrescienceBarFill(playerFrame, expirationTime, startDuration)
         end
         if duration > 10 then
             text:SetTextColor(1, 1, 1)
@@ -550,7 +596,8 @@ local function ApplyButtonHeight()
     end
 
     for _, frame in ipairs(selectedPlayerFrames) do
-        frame:SetSize(150, addon.db.profile.buttonHeight)
+        frame:SetSize(PLAYER_FRAME_WIDTH, addon.db.profile.buttonHeight)
+        RefreshPrescienceBarFill(frame)
     end
     SortType()
 end
@@ -565,7 +612,7 @@ local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitInde
     selectedPlayerFrames[frameIndex] = CreateFrame("Button", "EvokerAugPartyFrame" .. unittt, UIParent,
         BackdropTemplateMixin and "BackdropTemplate,SecureActionButtonTemplate,SecureUnitButtonTemplate" or
         "SecureActionButtonTemplate,SecureUnitButtonTemplate")
-    selectedPlayerFrames[frameIndex]:SetSize(150, addon.db.profile.buttonHeight)
+    selectedPlayerFrames[frameIndex]:SetSize(PLAYER_FRAME_WIDTH, addon.db.profile.buttonHeight)
     selectedPlayerFrames[frameIndex]["buff"] = {}
     selectedPlayerFrames[frameIndex]["buff"].xOffset = 0
     selectedPlayerFrames[frameIndex].playerName = playerName
@@ -574,8 +621,6 @@ local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitInde
     selectedPlayerFrames[frameIndex].texture = selectedPlayerFrames[frameIndex]:CreateTexture()
     selectedPlayerFrames[frameIndex].unit = unitIndex
     selectedPlayerFrames[frameIndex]:RegisterForClicks("AnyDown")
-
-    AddBuffIcons(selectedPlayerFrames[frameIndex], unitIndex)
 
     selectedPlayerFrames[frameIndex]:SetAttribute('unitName', playerName)
     selectedPlayerFrames[frameIndex]:SetAttribute('unitID', unitIndex)
@@ -590,19 +635,16 @@ local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitInde
         insets = { top = -1, left = -1, bottom = -1, right = -1 }
     })
     local classR, classG, classB = GetClassRGB(class)
-    selectedPlayerFrames[frameIndex]:SetBackdropColor(classR, classG, classB, 0.9)
+    selectedPlayerFrames[frameIndex]:SetBackdropColor(0.08, 0.08, 0.08, 0.82)
     selectedPlayerFrames[frameIndex].texture:SetVertexColor(classR, classG, classB, 0.9)
     CheckDistance(selectedPlayerFrames[frameIndex])
 
     selectedPlayerFrames[frameIndex].texture:SetPoint('TOP', selectedPlayerFrames[frameIndex], 'TOP')
     selectedPlayerFrames[frameIndex].texture:SetPoint('BOTTOM', selectedPlayerFrames[frameIndex], 'BOTTOM')
     selectedPlayerFrames[frameIndex].texture:SetPoint('LEFT', selectedPlayerFrames[frameIndex], 'LEFT')
-    if addon.db.profile.prescienceBarEnable then
-        selectedPlayerFrames[frameIndex].texture:SetSize(1, addon.db.profile.buttonHeight)
-    else
-        selectedPlayerFrames[frameIndex].texture:SetSize(150, addon.db.profile.buttonHeight)
-    end
     selectedPlayerFrames[frameIndex].texture:SetTexture(addon.db.profile.backgroundTextTexture)
+    ApplyPrescienceBarFill(selectedPlayerFrames[frameIndex], nil, nil)
+    AddBuffIcons(selectedPlayerFrames[frameIndex], unitIndex)
 
 
     selectedPlayerFrames[frameIndex].playerNameText = selectedPlayerFrames[frameIndex]:CreateFontString(nil, "OVERLAY",
@@ -1130,6 +1172,9 @@ local function GetOptions()
                         end,
                         set = function(info, value)
                             addon.db.profile.prescienceBarEnable = value
+                            for _, frame in ipairs(selectedPlayerFrames) do
+                                RefreshPrescienceBarFill(frame)
+                            end
                         end,
                     },
                     prescienceSound = {
@@ -1700,7 +1745,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
                         local frame = selectedPlayerFrames[frameIndex]
                         local clasxs = frame.class
                         local classR, classG, classB = GetClassRGB(clasxs)
-                        frame:SetBackdropColor(classR, classG, classB, 0.9)
+                        frame:SetBackdropColor(0.08, 0.08, 0.08, 0.82)
                         frame.texture:SetVertexColor(classR, classG, classB, 0.9)
                         frame.playerNameText:SetText(frame.playerName)
                         DeadorGhostData[unit] = nil
