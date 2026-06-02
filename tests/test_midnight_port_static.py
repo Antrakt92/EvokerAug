@@ -207,7 +207,7 @@ def test_profile_callbacks_use_single_combat_aware_apply_path():
     assert "ClearSelectedFrameState()" in apply_body
     assert "LoadPosition(selectedPlayerFrameContainer)" in apply_body
     assert "selectedPlayerFrameContainer:RegisterEvent(\"PLAYER_ENTERING_WORLD\")" in apply_body
-    assert "selectedPlayerFrameContainer:UnregisterEvent(\"PLAYER_ENTERING_WORLD\")" in apply_body
+    assert "selectedPlayerFrameContainer:UnregisterEvent(\"PLAYER_ENTERING_WORLD\")" not in apply_body
     assert "RegisterOmniCDFrameData()" in apply_body
     assert "CreateProgressBar()" in apply_body
 
@@ -436,6 +436,7 @@ def test_saved_frame_position_is_sanitized_and_saved_on_logout():
     on_enable_body = function_body(CORE, "addon:OnEnable")
     assert "LoadPosition(selectedPlayerFrameContainer)" in on_enable_body
     assert 'selectedPlayerFrameContainer:RegisterEvent("PLAYER_LOGOUT")' in on_enable_body
+    assert 'selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")' in on_enable_body
     assert "SavePosition(selectedPlayerFrameContainer)" in on_enable_body
     assert "self.db.profile.positions.point, self.db.profile.positions.xOffset" not in on_enable_body
 
@@ -511,7 +512,8 @@ def test_mythic_visibility_and_auto_fill_options_refresh_runtime_frames():
     options_body = function_body(CORE, "GetOptions")
     auto_section = options_body[options_body.index("autoFrame = {") : options_body.index("raid = {")]
     assert "addon.db.profile.autoFrameFill = value" in auto_section
-    assert "if selectedPlayerFrameContainer then" in auto_section
+    assert "RegisterEvent" not in auto_section
+    assert "UnregisterEvent" not in auto_section
     assert "RefreshRuntimeFrames()" in auto_section
 
     raid_section = options_body[options_body.index("raid = {") : options_body.index("mythic = {")]

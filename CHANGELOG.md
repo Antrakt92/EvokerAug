@@ -40,6 +40,7 @@
 - Updated README and TOC copy to describe the current Midnight Augmentation buff-tracker behavior.
 - Fixed Mythic+/raid visibility and Auto Frame Fill toggles so they refresh the current runtime frames immediately or queue safely during combat.
 - Fixed roster and delayed dungeon Auto Frame Fill refreshes so they respect Evoker/Augmentation and raid/Mythic+ visibility before creating frames.
+- Fixed instance visibility checks so raid/Mythic+ show settings still apply on zoning when Auto Frame Fill is turned off.
 
 ### Added
 

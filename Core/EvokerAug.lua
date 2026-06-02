@@ -1565,13 +1565,6 @@ local function GetOptions()
                         end,
                         set = function(info, value)
                             addon.db.profile.autoFrameFill = value
-                            if selectedPlayerFrameContainer then
-                                if value then
-                                    selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
-                                else
-                                    selectedPlayerFrameContainer:UnregisterEvent("PLAYER_ENTERING_WORLD")
-                                end
-                            end
                             RefreshRuntimeFrames()
                         end,
                     },
@@ -2046,11 +2039,7 @@ local function ApplyActiveProfile()
     ClearSelectedFrameState()
     LoadPosition(selectedPlayerFrameContainer)
 
-    if addon.db.profile.autoFrameFill then
-        selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
-    else
-        selectedPlayerFrameContainer:UnregisterEvent("PLAYER_ENTERING_WORLD")
-    end
+    selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
 
     ApplyButtonHeight()
     ApplySpellIconSize()
@@ -2118,9 +2107,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
     selectedPlayerFrameContainer:RegisterEvent("UNIT_FLAGS")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_LOGOUT")
-    if addon.db.profile.autoFrameFill then
-        selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
-    end
+    selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
 
     local addonNameTexture = selectedPlayerFrameContainer:CreateTexture(nil, "OVERLAY")
     addonNameTexture:SetAllPoints()
