@@ -15,7 +15,7 @@ addon.SpellList = {
             { ["name"] = "Emerald Blossom", ["iconID"] = 4622457, ["spellID"] = 355913 },
             { ["name"] = "Return", ["iconID"] = 4622472, ["spellID"] = 361227 },
             { ["name"] = "Source of Magic", ["iconID"] = 4630412, ["spellID"] = 369459 },
-            { ["name"] = "Sense Power", ["iconID"] = 132160, ["spellID"] = 361022 },
+            { ["name"] = "Sense Power", ["iconID"] = 132160, ["spellID"] = 361021 },
         }
     }
 }

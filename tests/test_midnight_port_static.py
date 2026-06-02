@@ -383,6 +383,25 @@ def test_core_spell_labels_use_spell_info_with_corrected_fallbacks():
     assert "addon.db.profile.charSpell[spell.spellID] = spellName" in populate_body
 
 
+def test_sense_power_uses_cast_spell_id_separate_from_visible_aura():
+    castable_spell_block = SPELL_LIST[
+        SPELL_LIST.index('addon.SpellList = {') : SPELL_LIST.index('addon.AllSpellList = {')
+    ]
+    assert '["name"] = "Sense Power", ["iconID"] = 132160, ["spellID"] = 361021' in castable_spell_block
+    assert '["name"] = "Sense Power", ["iconID"] = 132160, ["spellID"] = 361022' not in castable_spell_block
+
+    tracked_buff_section = SPELL_LIST[SPELL_LIST.index('addon.AllSpellList = {') :]
+    assert '[361022] = "Sense Power"' in tracked_buff_section
+    assert '[361022] = "Sense Power"' in CONFIG
+
+    normalize_body = function_body(CORE, "NormalizeSensePowerSpellIDs")
+    assert "addon.SENSE_POWER_CAST_SPELL_ID = 361021" in CORE
+    assert "addon.SENSE_POWER_AURA_SPELL_ID = 361022" in CORE
+    assert "profile.charSpell[addon.SENSE_POWER_AURA_SPELL_ID] = nil" in normalize_body
+    assert "macroTable[key] = addon.SENSE_POWER_CAST_SPELL_ID" in normalize_body
+    assert "NormalizeSensePowerSpellIDs(profile)" in function_body(CORE, "NormalizeProfileShape")
+
+
 def test_tracked_buffs_use_explicit_disabled_and_custom_state():
     assert "disabledBuffList = {}" in CONFIG
     assert "customBuffList = {}" in CONFIG
@@ -551,7 +570,7 @@ def test_aura_payload_fields_are_secret_guarded_before_use():
     assert "not IsCleanPositiveNumber(auraInstanceID)" in add_body
     assert "not IsCleanAuraIcon(icon)" in add_body
     assert "local cleanSpellID = GetCleanPositiveSpellID(spellID)" in add_body
-    assert "cleanSpellID == 361022" in add_body
+    assert "cleanSpellID == addon.SENSE_POWER_AURA_SPELL_ID" in add_body
 
 
 def test_omnicd_toggle_uses_wow_reloadui_api():

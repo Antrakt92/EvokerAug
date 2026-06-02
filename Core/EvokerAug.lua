@@ -20,6 +20,8 @@ local DeadorGhostData = {}
 local issecretvalue = _G.issecretvalue or function() return false end
 local EBON_MIGHT_SPELL_IDS = { 395296, 395152 }
 local PRESCIENCE_ICON_ID = 5199639
+addon.SENSE_POWER_CAST_SPELL_ID = 361021
+addon.SENSE_POWER_AURA_SPELL_ID = 361022
 local PLAYER_FRAME_WIDTH = 150
 local OFFENSIVE_TIER_MAJOR = "major"
 local OFFENSIVE_TIER_MINOR = "minor"
@@ -758,6 +760,31 @@ local function NormalizeOffensiveBuffState()
     end
 end
 
+local function NormalizeSensePowerSpellIDs(profile)
+    if type(profile) ~= "table" then
+        return
+    end
+
+    if type(profile.charSpell) == "table" and profile.charSpell[addon.SENSE_POWER_AURA_SPELL_ID] == "Sense Power" then
+        if not profile.charSpell[addon.SENSE_POWER_CAST_SPELL_ID] then
+            profile.charSpell[addon.SENSE_POWER_CAST_SPELL_ID] = profile.charSpell[addon.SENSE_POWER_AURA_SPELL_ID]
+        end
+        profile.charSpell[addon.SENSE_POWER_AURA_SPELL_ID] = nil
+    end
+
+    local macroKeys = { "LeftSpell", "RightSpell", "ShiftSpell", "CtrlSpell", "AltSpell" }
+    local macroTables = { profile.tankMacros, profile.dpsMacros }
+    for _, macroTable in ipairs(macroTables) do
+        if type(macroTable) == "table" then
+            for _, key in ipairs(macroKeys) do
+                if macroTable[key] == addon.SENSE_POWER_AURA_SPELL_ID then
+                    macroTable[key] = addon.SENSE_POWER_CAST_SPELL_ID
+                end
+            end
+        end
+    end
+end
+
 local function NormalizeProfileShape()
     if not addon.db or not addon.db.profile then
         return
@@ -785,6 +812,7 @@ local function NormalizeProfileShape()
     EnsureDefaultTableFields(profile.tankMacros, defaults.tankMacros)
     EnsureDefaultTableFields(profile.dpsMacros, defaults.dpsMacros)
     EnsureDefaultTableFields(profile.minimap, defaults.minimap)
+    NormalizeSensePowerSpellIDs(profile)
     NormalizeOffensiveBuffState()
 
     ClampNumberSetting(profile, defaults, "buttonHeight", 20, 40)
@@ -1333,7 +1361,7 @@ local function AddBuffIcon(playerFrame, auraInstanceID, timestamp, icon, startTi
     end)
     playerFrame["buff"].xOffset = playerFrame["buff"].xOffset + addon.db.profile.spellIconSize
 
-    if cleanSpellID == 361022 then
+    if cleanSpellID == addon.SENSE_POWER_AURA_SPELL_ID then
         playerFrame["buff"][auraInstanceID].glow = true
         LibCustomGlow.PixelGlow_Start(playerFrame, { 0.95, 0.95, 0.32, 1 }, 8, 0.25, 10, 3, 0, 0, true, nil)
     end
