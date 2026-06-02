@@ -795,6 +795,7 @@ def test_packager_excludes_repo_only_files():
     assert "- Libs/LibCustomGlow-1.0/.luarc.json" in PKGMETA
     assert "- Libs/LibCustomGlow-1.0/.pkgmeta" in PKGMETA
     assert "- Libs/LibCustomGlow-1.0/cspell.json" in PKGMETA
+    assert "- Libs/AceGUI-3.0-SharedMediaWidgets/Libs" in PKGMETA
     assert "dist/" in GITIGNORE
     assert "backups/" in GITIGNORE
     assert ".pytest_cache/" in GITIGNORE
@@ -928,6 +929,10 @@ def test_local_package_script_documents_expected_zip_surface():
     assert '"*.private"' in script
     assert "Test-AnyWildcardMatch -Value $item.Name -Patterns $ignoredFilePatterns" in script
     assert "Test-AnyWildcardMatch -Value $item.Name -Patterns $ignoredDirectoryPatterns" in script
+    assert '$ignoredRelativeDirectories = @(' in script
+    assert '"Libs\\AceGUI-3.0-SharedMediaWidgets\\Libs"' in script
+    assert "$excludedPath = Resolve-ChildPath -BasePath $addonRoot -ChildPath $relativeDirectory" in script
+    assert 'Assert-PathInsideRoot -Path $excludedPath -RootPath $addonRoot -Label "ignoredRelativeDirectory"' in script
 
 
 def test_local_package_script_bounds_destructive_paths():

@@ -103,6 +103,10 @@ $ignoredFilePatterns = @(
     "*.private.md"
 )
 
+$ignoredRelativeDirectories = @(
+    "Libs\AceGUI-3.0-SharedMediaWidgets\Libs"
+)
+
 if (Test-Path -LiteralPath $stagingRoot) {
     Remove-Item -LiteralPath $stagingRoot -Recurse -Force
 }
@@ -121,6 +125,14 @@ foreach ($item in $sourceItems) {
     }
 
     Copy-Item -LiteralPath $item.FullName -Destination $addonRoot -Recurse
+}
+
+foreach ($relativeDirectory in $ignoredRelativeDirectories) {
+    $excludedPath = Resolve-ChildPath -BasePath $addonRoot -ChildPath $relativeDirectory
+    Assert-PathInsideRoot -Path $excludedPath -RootPath $addonRoot -Label "ignoredRelativeDirectory"
+    if (Test-Path -LiteralPath $excludedPath) {
+        Remove-Item -LiteralPath $excludedPath -Recurse -Force
+    }
 }
 
 if (Test-Path -LiteralPath $zipPath) {

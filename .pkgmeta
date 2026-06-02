@@ -20,6 +20,7 @@ ignore:
   - Libs/LibCustomGlow-1.0/.luarc.json
   - Libs/LibCustomGlow-1.0/.pkgmeta
   - Libs/LibCustomGlow-1.0/cspell.json
+  - Libs/AceGUI-3.0-SharedMediaWidgets/Libs
 
 manual-changelog:
   filename: CHANGELOG.md
