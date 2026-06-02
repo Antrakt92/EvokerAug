@@ -704,6 +704,78 @@ def test_prescience_bar_uses_class_fill_over_dark_track():
     assert "RefreshPrescienceBarFill(frame)" in options_body
 
 
+def test_prescience_thin_tracker_defaults_are_independent_from_legacy_frames():
+    assert "prescienceThinTracker = {" in CONFIG
+    assert "position = {" in CONFIG
+    assert "rowWidth = 170" in CONFIG
+    assert "rowHeight = 12" in CONFIG
+    assert "rowSpacing = 3" in CONFIG
+    assert "locked = false" in CONFIG
+
+    normalize_body = function_body(CORE, "NormalizeProfileShape")
+    assert 'EnsureProfileTable(profile, defaults, "prescienceThinTracker")' in normalize_body
+    assert 'EnsureProfileTable(profile.prescienceThinTracker, defaults.prescienceThinTracker, "position")' in normalize_body
+    assert 'ClampNumberSetting(profile.prescienceThinTracker, defaults.prescienceThinTracker, "rowWidth", 100, 260)' in normalize_body
+    assert 'ClampNumberSetting(profile.prescienceThinTracker, defaults.prescienceThinTracker, "rowHeight", 8, 22)' in normalize_body
+    assert 'ClampNumberSetting(profile.prescienceThinTracker, defaults.prescienceThinTracker, "rowSpacing", 0, 10)' in normalize_body
+
+
+def test_prescience_thin_tracker_is_visual_only_and_movable_separately():
+    assert "prescienceThinTrackerFrame" in CORE
+    assert "prescienceThinTrackerRows" in CORE
+    assert "CreatePrescienceThinTrackerFrame" in CORE
+
+    create_body = function_body(CORE, "CreatePrescienceThinTrackerFrame")
+    assert 'CreateFrame("Frame", "EvokerAugPrescienceThinTracker", UIParent, BackdropTemplateMixin and "BackdropTemplate")' in create_body
+    assert "SecureActionButtonTemplate" not in create_body
+    assert "SecureUnitButtonTemplate" not in create_body
+    assert "prescienceThinTrackerFrame:SetMovable(true)" in create_body
+    assert "LoadPositionFromTable(prescienceThinTrackerFrame, addon.db.profile.prescienceThinTracker.position)" in create_body
+    assert "SavePositionToTable(prescienceThinTrackerFrame, addon.db.profile.prescienceThinTracker.position)" in create_body
+    assert "addon.db.profile.prescienceThinTracker.locked" in create_body
+
+
+def test_prescience_thin_tracker_tracks_dps_prescience_only():
+    assert "RefreshPrescienceThinTrackerRoster" in CORE
+    assert "RefreshPrescienceThinTrackerAuras" in CORE
+    assert "UpdatePrescienceThinTrackerRows" in CORE
+
+    roster_body = function_body(CORE, "RefreshPrescienceThinTrackerRoster")
+    assert "GetHomePartyInfos()" in roster_body
+    assert 'member.role == "DPS"' in roster_body
+    assert 'UnitIsUnit(member.unit, "player")' in roster_body
+    assert "CreatePrescienceThinTrackerRow(member)" in roster_body
+
+    aura_body = function_body(CORE, "RefreshPrescienceThinTrackerAuras")
+    assert "FindTrackedAuraBySpellID(row.unit, 410089)" in aura_body
+    assert "FindTrackedAuraBySpellID(row.unit, 395152)" not in aura_body
+    assert "FindTrackedAuraBySpellID(row.unit, 395296)" not in aura_body
+    assert "GetOffensiveStateForUnit" not in aura_body
+
+    update_body = function_body(CORE, "UpdatePrescienceThinTrackerRows")
+    assert "row.fill:SetWidth(width)" in update_body
+    assert "remaining / duration" in update_body
+    assert "row.fill:Hide()" in update_body
+
+
+def test_prescience_thin_tracker_wires_into_existing_events_without_replacing_old_frames():
+    on_enable_body = function_body(CORE, "addon:OnEnable")
+    assert "CreatePrescienceThinTrackerFrame()" in on_enable_body
+    assert "RefreshPrescienceThinTrackerRoster()" in on_enable_body
+    assert "RefreshPrescienceThinTrackerAuras(unit)" in on_enable_body
+    assert "UpdatePrescienceThinTrackerVisibility()" in on_enable_body
+
+    group_body = CORE[CORE.index('if event == "GROUP_ROSTER_UPDATE"') :]
+    group_body = group_body[: group_body.index('elseif event == "PLAYER_REGEN_DISABLED"')]
+    assert "RefreshRuntimeFrames()" in group_body
+    assert "RefreshPrescienceThinTrackerRoster()" in group_body
+
+    aura_event_body = CORE[CORE.index('elseif event == "UNIT_AURA"') :]
+    aura_event_body = aura_event_body[: aura_event_body.index('elseif event == "UNIT_SPELLCAST_SUCCEEDED"')]
+    assert "RefreshPrescienceThinTrackerAuras(unit)" in aura_event_body
+    assert "RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)" in aura_event_body
+
+
 def test_buff_icon_spacing_tracks_icon_size_changes():
     reposition_body = function_body(CORE, "RepositionBuffIcons")
     assert "addon.db.profile.spellIconSize" in reposition_body

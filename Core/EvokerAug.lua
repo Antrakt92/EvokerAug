@@ -41,6 +41,10 @@ local blizzardCompactFrameRefreshPending = false
 local instanceContextGeneration = 0
 local blizzardCompactFrameOverlays = {}
 local offensiveCastWindowsByGUID = {}
+local prescienceThinTrackerFrame
+local prescienceThinTrackerRows = {}
+local prescienceThinTrackerRowOrder = {}
+local prescienceThinTrackerUpdateElapsed = 0
 local CheckShoworHide
 local HideAllSubFrames
 local EnableAllFrame
@@ -56,6 +60,11 @@ local AddItemsWithMenu
 local EnsureOffensiveBuffStateTables
 local RefreshOffensiveBuffHighlight
 local RefreshOffensiveBuffHighlightsForAllSelectedUnits
+local CreatePrescienceThinTrackerFrame
+local RefreshPrescienceThinTrackerRoster
+local RefreshPrescienceThinTrackerAuras
+local UpdatePrescienceThinTrackerRows
+local UpdatePrescienceThinTrackerVisibility
 local VALID_FRAME_POINTS = {
     TOPLEFT = true,
     TOP = true,
@@ -846,11 +855,14 @@ local function NormalizeProfileShape()
     EnsureProfileTable(profile, defaults, "positions")
     EnsureProfileTable(profile, defaults, "offensiveBuffs")
     EnsureProfileTable(profile, defaults, "blizzardFrameHighlights")
+    EnsureProfileTable(profile, defaults, "prescienceThinTracker")
+    EnsureProfileTable(profile.prescienceThinTracker, defaults.prescienceThinTracker, "position")
 
     EnsureDefaultTableFields(profile.macro, defaults.macro)
     EnsureDefaultTableFields(profile.tankMacros, defaults.tankMacros)
     EnsureDefaultTableFields(profile.dpsMacros, defaults.dpsMacros)
     EnsureDefaultTableFields(profile.minimap, defaults.minimap)
+    EnsureDefaultTableFields(profile.prescienceThinTracker, defaults.prescienceThinTracker)
     EnsureBlizzardFrameHighlightState()
     NormalizeSensePowerSpellIDs(profile)
     NormalizeOffensiveBuffState()
@@ -858,6 +870,16 @@ local function NormalizeProfileShape()
     ClampNumberSetting(profile, defaults, "buttonHeight", 20, 40)
     ClampNumberSetting(profile, defaults, "spellIconSize", 20, 40)
     ClampNumberSetting(profile, defaults, "spellIconTextSize", 12, 20)
+    ClampNumberSetting(profile.prescienceThinTracker, defaults.prescienceThinTracker, "rowWidth", 100, 260)
+    ClampNumberSetting(profile.prescienceThinTracker, defaults.prescienceThinTracker, "rowHeight", 8, 22)
+    ClampNumberSetting(profile.prescienceThinTracker, defaults.prescienceThinTracker, "rowSpacing", 0, 10)
+
+    if type(profile.prescienceThinTracker.enabled) ~= "boolean" then
+        profile.prescienceThinTracker.enabled = defaults.prescienceThinTracker.enabled
+    end
+    if type(profile.prescienceThinTracker.locked) ~= "boolean" then
+        profile.prescienceThinTracker.locked = defaults.prescienceThinTracker.locked
+    end
 
     if not sortTypes[profile.sortType] then
         profile.sortType = defaults.sortType
@@ -1024,6 +1046,22 @@ local function LoadPosition(frame)
     end
 end
 
+local function LoadPositionFromTable(frame, position)
+    if not frame or type(position) ~= "table" then
+        return
+    end
+
+    local point, xOffset, yOffset = SanitizePosition(position)
+    position.point = point
+    position.xOffset = xOffset
+    position.yOffset = yOffset
+    frame:ClearAllPoints()
+    frame:SetPoint(point, UIParent, point, xOffset, yOffset)
+    if frame.SetUserPlaced and CanSetUserPlaced(frame) then
+        frame:SetUserPlaced(true)
+    end
+end
+
 local function SavePosition(frame)
     if not frame or not addon.db or not addon.db.profile then
         return
@@ -1043,6 +1081,26 @@ local function SavePosition(frame)
     addon.db.profile.positions.point = savedPoint
     addon.db.profile.positions.xOffset = savedXOffset
     addon.db.profile.positions.yOffset = savedYOffset
+end
+
+local function SavePositionToTable(frame, position)
+    if not frame or type(position) ~= "table" then
+        return
+    end
+
+    local point, _, _, xOffset, yOffset = frame:GetPoint()
+    if not point then
+        return
+    end
+
+    local savedPoint, savedXOffset, savedYOffset = SanitizePosition({
+        point = point,
+        xOffset = xOffset,
+        yOffset = yOffset,
+    })
+    position.point = savedPoint
+    position.xOffset = savedXOffset
+    position.yOffset = savedYOffset
 end
 
 local function GetClassRGB(class)
@@ -1723,6 +1781,275 @@ local function AddBuffIcons(playerFrame, unit)
             end
         end
     end
+end
+
+local function IsPrescienceThinTrackerRuntimeAllowed()
+    if not addon.db or not addon.db.profile then
+        return false
+    end
+
+    local settings = addon.db.profile.prescienceThinTracker
+    if type(settings) ~= "table" or settings.enabled == false then
+        return false
+    end
+    if GetUnitClassToken("player") ~= "EVOKER" then
+        return false
+    end
+
+    local currentSpec = GetSpecialization()
+    if currentSpec and currentSpec ~= 3 then
+        return false
+    end
+
+    local _, instanceType = IsInInstance()
+    if instanceType == "raid" then
+        return false
+    end
+    return ShouldShowForInstanceType(instanceType)
+end
+
+local function ClearPrescienceThinTrackerRows()
+    for _, row in pairs(prescienceThinTrackerRows) do
+        if row.frame then
+            row.frame:Hide()
+            row.frame:ClearAllPoints()
+            row.frame:SetParent(nil)
+        end
+    end
+    prescienceThinTrackerRows = {}
+    prescienceThinTrackerRowOrder = {}
+end
+
+local function LayoutPrescienceThinTrackerRows()
+    if not prescienceThinTrackerFrame or not addon.db or not addon.db.profile then
+        return
+    end
+
+    local settings = addon.db.profile.prescienceThinTracker
+    local rowWidth = settings.rowWidth
+    local rowHeight = settings.rowHeight
+    local rowSpacing = settings.rowSpacing
+    local rowCount = #prescienceThinTrackerRowOrder
+    local totalHeight = rowHeight
+    if rowCount > 0 then
+        totalHeight = (rowCount * rowHeight) + ((rowCount - 1) * rowSpacing)
+    end
+
+    prescienceThinTrackerFrame:SetSize(rowWidth, totalHeight)
+    for index, row in ipairs(prescienceThinTrackerRowOrder) do
+        row.frame:ClearAllPoints()
+        row.frame:SetSize(rowWidth, rowHeight)
+        row.track:SetAllPoints(row.frame)
+        row.fill:SetHeight(rowHeight)
+        row.nameText:ClearAllPoints()
+        row.nameText:SetPoint("CENTER", row.frame, "CENTER", 0, 0)
+        if index == 1 then
+            row.frame:SetPoint("TOP", prescienceThinTrackerFrame, "TOP", 0, 0)
+        else
+            row.frame:SetPoint("TOP", prescienceThinTrackerRowOrder[index - 1].frame, "BOTTOM", 0, -rowSpacing)
+        end
+    end
+end
+
+local function CreatePrescienceThinTrackerRow(member)
+    if not member or not member.identityKey or not prescienceThinTrackerFrame then
+        return nil
+    end
+
+    local row = prescienceThinTrackerRows[member.identityKey]
+    if not row then
+        local frame = CreateFrame("Frame", nil, prescienceThinTrackerFrame, BackdropTemplateMixin and "BackdropTemplate")
+        frame:SetBackdrop({
+            bgFile = [=[Interface\Tooltips\UI-Tooltip-Background]=],
+            insets = { top = 0, left = 0, bottom = 0, right = 0 }
+        })
+        frame:SetBackdropColor(0.03, 0.03, 0.03, 0.78)
+
+        local track = frame:CreateTexture(nil, "BACKGROUND")
+        track:SetColorTexture(0.02, 0.02, 0.02, 0.82)
+
+        local fill = frame:CreateTexture(nil, "ARTWORK")
+        fill:SetTexture(addon.db.profile.backgroundTextTexture)
+        fill:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+        fill:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+        fill:Hide()
+
+        local nameText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+        nameText:SetJustifyH("CENTER")
+        nameText:SetJustifyV("MIDDLE")
+
+        row = {
+            frame = frame,
+            track = track,
+            fill = fill,
+            nameText = nameText,
+        }
+        prescienceThinTrackerRows[member.identityKey] = row
+    end
+
+    local classR, classG, classB = GetClassRGB(member.class)
+    row.identityKey = member.identityKey
+    row.unit = member.unit
+    row.name = member.name
+    row.class = member.class
+    row.fill:SetVertexColor(classR, classG, classB, 0.95)
+    row.nameText:SetText(member.name or "")
+    row.nameText:SetTextColor(1, 1, 1, 0.95)
+    row.frame:Show()
+    return row
+end
+
+UpdatePrescienceThinTrackerRows = function()
+    if not prescienceThinTrackerFrame or not addon.db or not addon.db.profile then
+        return
+    end
+
+    local settings = addon.db.profile.prescienceThinTracker
+    local now = GetTime()
+    for _, row in ipairs(prescienceThinTrackerRowOrder) do
+        local width = 0
+        local expirationTime = row.expirationTime
+        local duration = row.duration
+        if IsCleanPositiveNumber(expirationTime) and IsCleanPositiveNumber(duration) then
+            local remaining = expirationTime - now
+            if remaining > 0 then
+                width = settings.rowWidth * (remaining / duration)
+                width = math.max(1, math.min(settings.rowWidth, width))
+            end
+        end
+
+        if width > 0 then
+            row.fill:SetWidth(width)
+            row.fill:Show()
+        else
+            row.fill:SetWidth(1)
+            row.fill:Hide()
+        end
+    end
+end
+
+RefreshPrescienceThinTrackerAuras = function(unit)
+    if not prescienceThinTrackerFrame then
+        return
+    end
+
+    for _, row in ipairs(prescienceThinTrackerRowOrder) do
+        if not unit or row.unit == unit then
+            local aura = FindTrackedAuraBySpellID(row.unit, 410089)
+            if aura and IsCleanPositiveNumber(aura.expirationTime) and IsCleanPositiveNumber(aura.duration) then
+                row.expirationTime = aura.expirationTime
+                row.duration = aura.duration
+            else
+                row.expirationTime = nil
+                row.duration = nil
+            end
+        end
+    end
+    UpdatePrescienceThinTrackerRows()
+end
+
+UpdatePrescienceThinTrackerVisibility = function()
+    if not prescienceThinTrackerFrame or not addon.db or not addon.db.profile then
+        return
+    end
+
+    local settings = addon.db.profile.prescienceThinTracker
+    local hasRows = #prescienceThinTrackerRowOrder > 0
+    if IsPrescienceThinTrackerRuntimeAllowed() and (hasRows or not settings.locked) then
+        prescienceThinTrackerFrame:Show()
+    else
+        prescienceThinTrackerFrame:Hide()
+    end
+end
+
+RefreshPrescienceThinTrackerRoster = function()
+    if not addon.db or not addon.db.profile then
+        return
+    end
+
+    CreatePrescienceThinTrackerFrame()
+    if not IsPrescienceThinTrackerRuntimeAllowed() then
+        ClearPrescienceThinTrackerRows()
+        UpdatePrescienceThinTrackerVisibility()
+        return
+    end
+
+    local seenRows = {}
+    prescienceThinTrackerRowOrder = {}
+    local partyMembers = GetHomePartyInfos()
+    for _, member in ipairs(partyMembers) do
+        if member.role == "DPS" and not UnitIsUnit(member.unit, "player") then
+            local row = CreatePrescienceThinTrackerRow(member)
+            if row then
+                seenRows[member.identityKey] = true
+                table.insert(prescienceThinTrackerRowOrder, row)
+            end
+        end
+    end
+
+    for identityKey, row in pairs(prescienceThinTrackerRows) do
+        if not seenRows[identityKey] then
+            if row.frame then
+                row.frame:Hide()
+                row.frame:ClearAllPoints()
+                row.frame:SetParent(nil)
+            end
+            prescienceThinTrackerRows[identityKey] = nil
+        end
+    end
+
+    LayoutPrescienceThinTrackerRows()
+    RefreshPrescienceThinTrackerAuras()
+    UpdatePrescienceThinTrackerVisibility()
+end
+
+CreatePrescienceThinTrackerFrame = function()
+    if prescienceThinTrackerFrame or not addon.db or not addon.db.profile then
+        return
+    end
+
+    local settings = addon.db.profile.prescienceThinTracker
+    prescienceThinTrackerFrame = CreateFrame("Frame", "EvokerAugPrescienceThinTracker", UIParent, BackdropTemplateMixin and "BackdropTemplate")
+    prescienceThinTrackerFrame:SetSize(settings.rowWidth, settings.rowHeight)
+    prescienceThinTrackerFrame:SetMovable(true)
+    LoadPositionFromTable(prescienceThinTrackerFrame, addon.db.profile.prescienceThinTracker.position)
+    prescienceThinTrackerFrame:EnableMouse(true)
+    prescienceThinTrackerFrame:RegisterForDrag("LeftButton")
+    prescienceThinTrackerFrame:SetBackdrop({
+        bgFile = [=[Interface\Tooltips\UI-Tooltip-Background]=],
+        insets = { top = 0, left = 0, bottom = 0, right = 0 }
+    })
+    prescienceThinTrackerFrame:SetBackdropColor(0.02, 0.02, 0.02, 0.35)
+
+    prescienceThinTrackerFrame:SetScript("OnDragStart", function(frame)
+        if not addon.db.profile.prescienceThinTracker.locked then
+            frame.evokerAugIsMoving = true
+            frame:StartMoving()
+        end
+    end)
+    prescienceThinTrackerFrame:SetScript("OnDragStop", function(frame)
+        if frame.evokerAugIsMoving then
+            frame.evokerAugIsMoving = nil
+            frame:StopMovingOrSizing()
+            SavePositionToTable(prescienceThinTrackerFrame, addon.db.profile.prescienceThinTracker.position)
+        end
+    end)
+    prescienceThinTrackerFrame:SetScript("OnMouseUp", function(_, button)
+        if button == "RightButton" then
+            addon.db.profile.prescienceThinTracker.locked = not addon.db.profile.prescienceThinTracker.locked
+            UpdatePrescienceThinTrackerVisibility()
+        end
+    end)
+    prescienceThinTrackerFrame:SetScript("OnUpdate", function(_, elapsed)
+        prescienceThinTrackerUpdateElapsed = prescienceThinTrackerUpdateElapsed + (elapsed or 0)
+        if prescienceThinTrackerUpdateElapsed < 0.05 then
+            return
+        end
+        prescienceThinTrackerUpdateElapsed = 0
+        UpdatePrescienceThinTrackerRows()
+    end)
+
+    UpdatePrescienceThinTrackerVisibility()
 end
 
 --- Create Player Frame ----
@@ -2639,8 +2966,93 @@ local function GetOptions()
                             addon.db.profile.prescienceBuffSoundName = key
                         end
                     },
+                    prescienceThinTrackerHeader = {
+                        type = 'header',
+                        name = 'Prescience Thin Tracker',
+                        order = 25,
+                    },
+                    prescienceThinTrackerEnabled = {
+                        order = 26,
+                        type = 'toggle',
+                        name = "Enable Thin Tracker",
+                        desc = "Show a separate compact Prescience-only tracker for party DPS.",
+                        get = function()
+                            return addon.db.profile.prescienceThinTracker.enabled
+                        end,
+                        set = function(info, value)
+                            addon.db.profile.prescienceThinTracker.enabled = value
+                            RefreshPrescienceThinTrackerRoster()
+                            UpdatePrescienceThinTrackerVisibility()
+                        end,
+                    },
+                    prescienceThinTrackerLocked = {
+                        order = 27,
+                        type = 'toggle',
+                        name = "Lock Thin Tracker",
+                        desc = "Lock the compact Prescience tracker position.",
+                        get = function()
+                            return addon.db.profile.prescienceThinTracker.locked
+                        end,
+                        set = function(info, value)
+                            addon.db.profile.prescienceThinTracker.locked = value
+                            UpdatePrescienceThinTrackerVisibility()
+                        end,
+                    },
+                    prescienceThinTrackerWidth = {
+                        order = 28,
+                        type = 'range',
+                        name = "Thin Tracker Width",
+                        desc = "Set the compact Prescience tracker row width.",
+                        min = 100,
+                        max = 260,
+                        step = 1,
+                        get = function()
+                            return addon.db.profile.prescienceThinTracker.rowWidth
+                        end,
+                        set = function(info, value)
+                            addon.db.profile.prescienceThinTracker.rowWidth = value
+                            LayoutPrescienceThinTrackerRows()
+                            UpdatePrescienceThinTrackerRows()
+                            UpdatePrescienceThinTrackerVisibility()
+                        end,
+                    },
+                    prescienceThinTrackerHeight = {
+                        order = 29,
+                        type = 'range',
+                        name = "Thin Tracker Height",
+                        desc = "Set the compact Prescience tracker row height.",
+                        min = 8,
+                        max = 22,
+                        step = 1,
+                        get = function()
+                            return addon.db.profile.prescienceThinTracker.rowHeight
+                        end,
+                        set = function(info, value)
+                            addon.db.profile.prescienceThinTracker.rowHeight = value
+                            LayoutPrescienceThinTrackerRows()
+                            UpdatePrescienceThinTrackerRows()
+                            UpdatePrescienceThinTrackerVisibility()
+                        end,
+                    },
+                    prescienceThinTrackerSpacing = {
+                        order = 30,
+                        type = 'range',
+                        name = "Thin Tracker Spacing",
+                        desc = "Set the gap between compact Prescience tracker rows.",
+                        min = 0,
+                        max = 10,
+                        step = 1,
+                        get = function()
+                            return addon.db.profile.prescienceThinTracker.rowSpacing
+                        end,
+                        set = function(info, value)
+                            addon.db.profile.prescienceThinTracker.rowSpacing = value
+                            LayoutPrescienceThinTrackerRows()
+                            UpdatePrescienceThinTrackerVisibility()
+                        end,
+                    },
                     ebonmight = {
-                        order = 23,
+                        order = 31,
                         type = 'toggle',
                         name = "Ebon Might Progress Bar",
                         desc = "When enabled for Ebon Might, the dynamic bar is shown; when disabled, it is hidden.",
@@ -3149,12 +3561,16 @@ local function ApplyActiveProfile()
 
     ClearSelectedFrameState()
     LoadPosition(selectedPlayerFrameContainer)
+    CreatePrescienceThinTrackerFrame()
+    LoadPositionFromTable(prescienceThinTrackerFrame, addon.db.profile.prescienceThinTracker.position)
 
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
 
     ApplyButtonHeight()
     ApplySpellIconSize()
     CreateProgressBar()
+    RefreshPrescienceThinTrackerRoster()
+    UpdatePrescienceThinTrackerVisibility()
     if ApplyInstanceVisibilityPolicy() then
         AddFrameFavorite()
         if addon.db.profile.autoFrameFill then
@@ -3211,6 +3627,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
     selectedPlayerFrameContainer:SetSize(200, 20)
     selectedPlayerFrameContainer:SetMovable(true)
     LoadPosition(selectedPlayerFrameContainer)
+    CreatePrescienceThinTrackerFrame()
     selectedPlayerFrameContainer:EnableMouse(true)
     selectedPlayerFrameContainer:RegisterForDrag("LeftButton")
     selectedPlayerFrameContainer:RegisterEvent("GROUP_ROSTER_UPDATE")
@@ -3261,12 +3678,15 @@ function addon:OnEnable() -- PLAYER_LOGIN
     selectedPlayerFrameContainer:SetScript("OnEvent", function(self, event, unit, info, spellID)
         if event == "GROUP_ROSTER_UPDATE" then
             RefreshRuntimeFrames()
+            RefreshPrescienceThinTrackerRoster()
         elseif event == "UNIT_CONNECTION" then
             RefreshRuntimeFrames()
+            RefreshPrescienceThinTrackerRoster()
         elseif event == "PLAYER_REGEN_DISABLED" then
             combatLockdown = true
         elseif event == "PLAYER_LOGOUT" then
             SavePosition(selectedPlayerFrameContainer)
+            SavePositionToTable(prescienceThinTrackerFrame, addon.db.profile.prescienceThinTracker.position)
         elseif event == "PLAYER_REGEN_ENABLED" then
             combatLockdown = false
             if pendingActiveProfileApply then
@@ -3292,6 +3712,8 @@ function addon:OnEnable() -- PLAYER_LOGIN
                 blizzardCompactFrameRefreshPending = false
                 RefreshBlizzardCompactFrameHighlightsForAllUnits()
             end
+            RefreshPrescienceThinTrackerRoster()
+            UpdatePrescienceThinTrackerVisibility()
         elseif event == "PLAYER_ENTERING_WORLD" then
             instanceContextGeneration = instanceContextGeneration + 1
             local generation = instanceContextGeneration
@@ -3318,6 +3740,8 @@ function addon:OnEnable() -- PLAYER_LOGIN
             end
             ApplyInstanceVisibilityPolicy()
             RefreshBlizzardCompactFrameHighlightsForAllUnits()
+            RefreshPrescienceThinTrackerRoster()
+            UpdatePrescienceThinTrackerVisibility()
         elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
             if unit == "player" then
                 local currentSpec = GetSpecialization()
@@ -3325,9 +3749,11 @@ function addon:OnEnable() -- PLAYER_LOGIN
                     if currentSpec ~= 3 then
                         HideAllSubFrames()
                         ClearBlizzardCompactFrameHighlights()
+                        UpdatePrescienceThinTrackerVisibility()
                     else
                         RefreshRuntimeFrames()
                         SyncRuntimeFrameVisibility()
+                        RefreshPrescienceThinTrackerRoster()
                     end
                 end
             end
@@ -3335,6 +3761,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
             if info == nil or info.isFullUpdate then
                 ReconcileTrackedAurasForUnit(unit)
                 RefreshBlizzardCompactFrameHighlightsForUnit(unit)
+                RefreshPrescienceThinTrackerAuras(unit)
                 return
             end
             local frameIndex = GetPlayerFrameIndexByUnit(unit)
@@ -3364,6 +3791,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
                 RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)
             end
             RefreshBlizzardCompactFrameHighlightsForUnit(unit)
+            RefreshPrescienceThinTrackerAuras(unit)
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             RecordOffensiveCastWindow(unit, spellID)
         elseif event == "UNIT_FLAGS" then
@@ -3430,6 +3858,9 @@ function addon:OnEnable() -- PLAYER_LOGIN
 
         AddItemsWithMenu()
     end
+
+    RefreshPrescienceThinTrackerRoster()
+    UpdatePrescienceThinTrackerVisibility()
 end
 
 function addon:Reconfigure()

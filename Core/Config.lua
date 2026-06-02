@@ -70,6 +70,18 @@ addon.DefaultProfile = {
             enabled = true,
             showRaid = false,
         },
+        prescienceThinTracker = {
+            enabled = true,
+            locked = false,
+            rowWidth = 170,
+            rowHeight = 12,
+            rowSpacing = 3,
+            position = {
+                point = "CENTER",
+                xOffset = 180,
+                yOffset = 0
+            },
+        },
         omniCDSupport = false,
         favoriPlayer = {},
     }
