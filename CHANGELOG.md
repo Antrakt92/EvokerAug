@@ -28,6 +28,7 @@
 - Fixed favorite-list removals so remaining favorites keep working after settings changes.
 - Fixed the OmniCD support option so the requested state is saved even when OmniCD is absent.
 - Fixed release packaging so public release notes use the curated changelog.
+- Fixed tracked-buff persistence so disabled default buffs and saved custom spell IDs survive reloads.
 
 ### Added
 

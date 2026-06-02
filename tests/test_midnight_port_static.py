@@ -177,10 +177,41 @@ def test_custom_spell_options_use_spell_name_and_icon_texture():
     assert "if spell and spell.name and spell.iconID then" in classes_body
 
     add_body = function_body(CORE, "SpellListAdd")
-    assert "name = Spell.name" in add_body
-    assert "image = Spell.iconID" in add_body
+    option_body = function_body(CORE, "AddTrackedBuffOption")
+    assert "Spell.name" in add_body
+    assert "name = spellName" in option_body
+    assert "image = iconID" in option_body
     assert "name = Spell.iconID" not in add_body
     assert "image = icon" not in add_body
+
+
+def test_tracked_buffs_use_explicit_disabled_and_custom_state():
+    assert "disabledBuffList = {}" in CONFIG
+    assert "customBuffList = {}" in CONFIG
+
+    set_body = function_body(CORE, "SetTrackedBuff")
+    assert "addon.db.profile.disabledBuffList[spellID] = true" in set_body
+    assert "addon.db.profile.disabledBuffList[spellID] = nil" in set_body
+    assert "addon.db.profile.customBuffList[spellID] = spellName" in set_body
+    assert "addon.db.profile.customBuffList[spellID] = nil" in set_body
+
+    find_body = function_body(CORE, "FindTrackedAuraBySpellID")
+    assert "IsTrackedBuffEnabled(aura.spellId)" in find_body
+
+    add_icons_body = function_body(CORE, "AddBuffIcons")
+    assert "IsTrackedBuffEnabled(k)" in add_icons_body
+
+    spell_add_body = function_body(CORE, "SpellListAdd")
+    assert "SetTrackedBuff(spellId, Spell.name, true, true)" in spell_add_body
+    assert "AddTrackedBuffOption(spellId, Spell.name, Spell.iconID, true" in spell_add_body
+
+    options_body = function_body(CORE, "GetOptions")
+    assert "SeedCustomBuffListFromBuffList()" in options_body
+    assert "AddTrackedBuffOption(k, v.name, v.icon, false" in options_body
+    assert "AddSavedCustomSpellOptions()" in options_body
+
+    assert "addon.db.profile.buffList[k] = nil" not in CORE
+    assert "addon.db.profile.buffList[spellId] = nil" not in CORE
 
 
 def test_omnicd_toggle_uses_wow_reloadui_api():

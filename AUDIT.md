@@ -19,25 +19,6 @@ speculative cleanup ideas without a concrete failure path.
 
 ## T2 High
 
-### EVA-T2-001: Replace `buffList` default toggles with stable persisted state
-
-- Evidence: `Core\Config.lua::addon.DefaultProfile.profile.buffList` stores
-  default tracked spells; `Core\EvokerAug.lua::GetOptions` disables them by
-  writing `nil`; AceDB restores missing default keys from defaults; custom
-  spell rows are only rebuilt from `AllSpellList` unless `SpellListAdd` runs.
-- Current behavior: disabling a default tracked buff can come back after
-  reload/profile-default reapplication, while saved custom spell IDs can remain
-  enabled in `buffList` but disappear from the options UI and become hard to
-  remove.
-- Impact: user spell tracking preferences are not reliable.
-- Suggested fix direction: model tracking explicitly, for example
-  `trackedSpells[spellID] = true/false` plus a saved custom-spell metadata set,
-  or separate `disabledDefaultSpells` and `customSpells`; render saved custom
-  IDs during options construction.
-- Tests/verification: disable a default spell, reload, and confirm it stays
-  disabled; add a custom spell, reload, and confirm it appears checked and can
-  be removed.
-
 ### EVA-T2-002: Use stable player identity keys instead of short display names
 
 - Evidence: `Core\EvokerAug.lua::GetCharacterName`, `AddHomePartyInfo`,

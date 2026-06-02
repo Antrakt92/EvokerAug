@@ -98,9 +98,88 @@ local function FindAuraBySpellID(unit, spellID)
     return nil
 end
 
+local function EnsureTrackedBuffStateTables()
+    if not addon.db or not addon.db.profile then
+        return
+    end
+
+    addon.db.profile.buffList = addon.db.profile.buffList or {}
+    addon.db.profile.disabledBuffList = addon.db.profile.disabledBuffList or {}
+    addon.db.profile.customBuffList = addon.db.profile.customBuffList or {}
+end
+
+local function IsCoreBuffOption(spellID)
+    spellID = tonumber(spellID)
+    if not spellID then
+        return false
+    end
+
+    local defaultBuffs = addon.DefaultProfile and addon.DefaultProfile.profile and addon.DefaultProfile.profile.buffList
+    if defaultBuffs and defaultBuffs[spellID] ~= nil then
+        return true
+    end
+
+    return AllSpellList and AllSpellList["Augmentation"] and AllSpellList["Augmentation"][spellID] ~= nil
+end
+
+local function IsTrackedBuffEnabled(spellID)
+    spellID = tonumber(spellID)
+    if not spellID or not addon.db or not addon.db.profile then
+        return false
+    end
+
+    local disabledBuffList = addon.db.profile.disabledBuffList or {}
+    if disabledBuffList[spellID] then
+        return false
+    end
+
+    local buffList = addon.db.profile.buffList or {}
+    return buffList[spellID] ~= nil
+end
+
+local function SetTrackedBuff(spellID, spellName, enabled, isCustom)
+    spellID = tonumber(spellID)
+    if not spellID or not spellName then
+        return
+    end
+
+    EnsureTrackedBuffStateTables()
+    local isCore = IsCoreBuffOption(spellID)
+
+    if enabled then
+        addon.db.profile.disabledBuffList[spellID] = nil
+        addon.db.profile.buffList[spellID] = spellName
+        if isCustom and not isCore then
+            addon.db.profile.customBuffList[spellID] = spellName
+        end
+    else
+        addon.db.profile.buffList[spellID] = nil
+        if isCore then
+            addon.db.profile.disabledBuffList[spellID] = true
+        else
+            addon.db.profile.disabledBuffList[spellID] = nil
+            addon.db.profile.customBuffList[spellID] = nil
+        end
+    end
+end
+
+local function SeedCustomBuffListFromBuffList()
+    EnsureTrackedBuffStateTables()
+    if not addon.db or not addon.db.profile then
+        return
+    end
+
+    for spellID, spellName in pairs(addon.db.profile.buffList) do
+        local numericSpellID = tonumber(spellID)
+        if numericSpellID and not IsCoreBuffOption(numericSpellID) and type(spellName) == "string" then
+            addon.db.profile.customBuffList[numericSpellID] = spellName
+        end
+    end
+end
+
 local function FindTrackedAuraBySpellID(unit, spellID)
     local aura = FindAuraBySpellID(unit, spellID)
-    if aura and addon.db.profile.buffList[aura.spellId] then
+    if aura and IsTrackedBuffEnabled(aura.spellId) then
         return aura
     end
     return nil
@@ -622,11 +701,13 @@ local function AddBuffIcons(playerFrame, unit)
     end
 
     for k in pairs(addon.db.profile.buffList) do
-        local spellTable = FindTrackedAuraBySpellID(unit, k)
-        if spellTable then
-            if IsCleanPositiveNumber(spellTable.expirationTime) then
-                AddBuffIcon(playerFrame, spellTable.auraInstanceID, spellTable.expirationTime, spellTable.icon,
-                    spellTable.duration, spellTable.spellId)
+        if IsTrackedBuffEnabled(k) then
+            local spellTable = FindTrackedAuraBySpellID(unit, k)
+            if spellTable then
+                if IsCleanPositiveNumber(spellTable.expirationTime) then
+                    AddBuffIcon(playerFrame, spellTable.auraInstanceID, spellTable.expirationTime, spellTable.icon,
+                        spellTable.duration, spellTable.spellId)
+                end
             end
         end
     end
@@ -1051,28 +1132,48 @@ local function GetClasses()
     return Augment
 end
 
+local function AddTrackedBuffOption(spellId, spellName, iconID, isCustom, order)
+    if not EvokerAugOptions.args or not EvokerAugOptions.args.customSpells then
+        return
+    end
+
+    EvokerAugOptions.args.customSpells.args.buffList.args[spellName .. "" .. spellId] = {
+        order = order,
+        type = 'toggle',
+        name = spellName,
+        imageCoords = { 0.07, 0.93, 0.07, 0.93 },
+        image = iconID,
+        arg = spellId,
+        set = function(_, value)
+            SetTrackedBuff(spellId, spellName, value, isCustom)
+        end,
+        get = function()
+            return IsTrackedBuffEnabled(spellId)
+        end,
+    }
+end
+
+local function AddSavedCustomSpellOptions()
+    EnsureTrackedBuffStateTables()
+    for spellId, savedName in pairs(addon.db.profile.customBuffList) do
+        local numericSpellID = tonumber(spellId)
+        if numericSpellID and not IsCoreBuffOption(numericSpellID) then
+            local spell = C_Spell.GetSpellInfo(numericSpellID)
+            local spellName = spell and spell.name or savedName
+            local iconID = spell and spell.iconID
+            if spellName then
+                AddTrackedBuffOption(numericSpellID, spellName, iconID, true, numericSpellID)
+            end
+        end
+    end
+end
+
 local function SpellListAdd(spellId)
     if spellId then
         local Spell = C_Spell.GetSpellInfo(spellId)
-        if Spell and Spell.name and not addon.db.profile.buffList[spellId] then
-            EvokerAugOptions.args.customSpells.args.buffList.args[Spell.name .. "" .. spellId] = {
-                order = spellId,
-                type = 'toggle',
-                name = Spell.name,
-                imageCoords = { 0.07, 0.93, 0.07, 0.93 },
-                image = Spell.iconID,
-                arg = spellId,
-                set = function(_, value)
-                    if value then
-                        addon.db.profile.buffList[spellId] = Spell.name
-                    else
-                        addon.db.profile.buffList[spellId] = nil
-                    end
-                end,
-                get = function()
-                    return addon.db.profile.buffList[spellId] ~= nil
-                end,
-            }
+        if Spell and Spell.name then
+            SetTrackedBuff(spellId, Spell.name, true, true)
+            AddTrackedBuffOption(spellId, Spell.name, Spell.iconID, true, spellId)
             AceConfigRegistry:NotifyChange(addonName)
         end
     end
@@ -1083,6 +1184,7 @@ local function GetOptions()
     profiles.order = 600
     profiles.disabled = false
     local favList = NormalizeFavoriteList()
+    SeedCustomBuffListFromBuffList()
     local orderNumber = 2
     EvokerAugOptions = {
         name = addonName,
@@ -1690,27 +1792,10 @@ local function GetOptions()
     }
 
     for k, v in pairs(GetClasses()) do
-        EvokerAugOptions.args.customSpells.args.buffList.args[v.name .. "" .. k] = {
-            order = orderNumber,
-            type = 'toggle',
-            name = v.name,
-            imageCoords = { 0.07, 0.93, 0.07, 0.93 },
-            image = v.icon,
-            arg = k,
-            set = function(_, value)
-                if value then
-                    addon.db.profile.buffList[k] = v.name
-                else
-                    addon.db.profile.buffList[k] = nil
-                end
-            end,
-            get = function()
-                return addon.db.profile.buffList[k] ~= nil
-            end,
-        }
-
+        AddTrackedBuffOption(k, v.name, v.icon, false, orderNumber)
         orderNumber = orderNumber + 1
     end
+    AddSavedCustomSpellOptions()
 
     orderNumber = 2
     for k, v in pairs(favList) do
@@ -1740,6 +1825,7 @@ end
 
 function addon:OnInitialize()
     self.db = LibStub('AceDB-3.0'):New(addonName .. "DB", self.DefaultProfile, true)
+    SeedCustomBuffListFromBuffList()
     self.db.RegisterCallback(self, "OnProfileReset", "Reconfigure")
     self:RegisterChatCommand("aug", function(cmd)
         addon:OpenOptions(strsplit(' ', cmd or ""))
