@@ -1942,7 +1942,9 @@ end
 local function PopulateCharSpellDefaults()
     addon.db.profile.charSpell = addon.db.profile.charSpell or {}
     for _, spell in ipairs(spell_list["EVOKER"]["AUGMENTATION"]) do
-        addon.db.profile.charSpell[spell.spellID] = spell.name
+        local spellInfo = C_Spell.GetSpellInfo(spell.spellID)
+        local spellName = spellInfo and spellInfo.name or spell.name
+        addon.db.profile.charSpell[spell.spellID] = spellName
     end
 end
 

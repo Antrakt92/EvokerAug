@@ -5,6 +5,7 @@ import re
 ROOT = Path(__file__).resolve().parents[1]
 CORE = (ROOT / "Core" / "EvokerAug.lua").read_text(encoding="utf-8")
 CONFIG = (ROOT / "Core" / "Config.lua").read_text(encoding="utf-8")
+SPELL_LIST = (ROOT / "Core" / "SpellList.lua").read_text(encoding="utf-8")
 TOC = (ROOT / "EvokerAug.toc").read_text(encoding="utf-8")
 PKGMETA = (ROOT / ".pkgmeta").read_text(encoding="utf-8")
 GITIGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
@@ -255,6 +256,16 @@ def test_custom_spell_options_use_spell_name_and_icon_texture():
     assert "image = iconID" in option_body
     assert "name = Spell.iconID" not in add_body
     assert "image = icon" not in add_body
+
+
+def test_core_spell_labels_use_spell_info_with_corrected_fallbacks():
+    assert "Sourceof Magic" not in SPELL_LIST
+    assert "Source of Magic" in SPELL_LIST
+
+    populate_body = function_body(CORE, "PopulateCharSpellDefaults")
+    assert "C_Spell.GetSpellInfo(spell.spellID)" in populate_body
+    assert "spellInfo and spellInfo.name or spell.name" in populate_body
+    assert "addon.db.profile.charSpell[spell.spellID] = spellName" in populate_body
 
 
 def test_tracked_buffs_use_explicit_disabled_and_custom_state():

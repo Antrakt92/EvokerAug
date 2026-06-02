@@ -11,7 +11,7 @@ spell_list = {
             { ["name"] = "Living Flame", ["iconID"] = 4622464, ["spellID"] = 361469 },
             { ["name"] = "Emerald Blossom", ["iconID"] = 4622457, ["spellID"] = 355913 },
             { ["name"] = "Return", ["iconID"] = 4622472, ["spellID"] = 361227 },
-            { ["name"] = "Sourceof Magic", ["iconID"] = 4630412, ["spellID"] = 369459 },
+            { ["name"] = "Source of Magic", ["iconID"] = 4630412, ["spellID"] = 369459 },
             { ["name"] = "Sense Power", ["iconID"] = 132160, ["spellID"] = 361022 },
         }
     }
@@ -20,7 +20,7 @@ spell_list = {
 AllSpellList = {
     ["Augmentation"] = {
         [363916] = "Obsidian Scales",
-        [369459] = "Sourceof Magic",
+        [369459] = "Source of Magic",
         [395296] = "Ebon Might",
         [395152] = "Ebon Might",
         [410089] = "Prescience",

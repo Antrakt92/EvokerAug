@@ -33,6 +33,7 @@
 - Fixed party-frame identity so same-name players from different realms no longer collapse into one frame.
 - Fixed profile reset, copy, and switch handling so active profiles apply through one combat-safe refresh path.
 - Fixed saved frame positions so invalid values fall back safely and the current position is saved on logout.
+- Fixed core spell dropdown labels to use localized spell names, with a corrected Source of Magic fallback.
 
 ### Added
 

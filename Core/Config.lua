@@ -80,6 +80,7 @@ v1.0.24-midnight.1
     - Party frames now track full player identity so same-name cross-realm players stay separate.
     - Profile reset, copy, and switch now reapply settings through one combat-safe refresh path.
     - Frame position loading now validates saved values and saves the current position on logout.
+    - Core spell dropdown labels now use localized spell names, with a corrected Source of Magic fallback.
 
 v1.0.23
     - Fixed the problem of the frame appearing only in gray due to some situations.
