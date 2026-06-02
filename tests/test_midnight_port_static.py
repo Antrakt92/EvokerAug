@@ -67,6 +67,34 @@ def test_localized_class_names_are_not_used_as_class_tokens():
     assert CORE.count("UnitClass(") == 1
 
 
+def test_midnight_devourer_uses_generic_demon_hunter_dps_path():
+    """Devourer DH is a Midnight DPS spec; EvokerAug should not need a specID whitelist."""
+    assert "1480" not in CORE
+    assert "Devourer" not in CORE
+    assert "Havoc" not in CORE
+    assert "Vengeance" not in CORE
+    assert "DEMONHUNTER" not in CORE
+
+    add_home_body = function_body(CORE, "AddHomePartyInfo")
+    assert "GetUnitClassToken(unit)" in add_home_body
+    assert 'UnitGroupRolesAssigned(unit)' in add_home_body
+    assert 'if combatRole == "DAMAGER" then' in add_home_body
+    assert 'combatRole = "DPS"' in add_home_body
+    assert 'class = strupper(string.gsub(class, "%s+", ""))' in add_home_body
+
+    favorite_body = function_body(CORE, "AddFavoriteFrameForUnit")
+    assert "GetUnitClassToken(unitID)" in favorite_body
+    assert 'UnitGroupRolesAssigned(unitID)' in favorite_body
+    assert 'combatRole = "DPS"' in favorite_body
+
+    autofill_body = function_body(CORE, "FrameAutoFill")
+    assert 'member.role ~= "HEALER"' in autofill_body
+    assert 'member.role == "DPS"' not in autofill_body
+
+    macro_body = function_body(CORE, "MacroUpdate")
+    assert 'frame.role == "TANK" and addon.db.profile.tankMacros or addon.db.profile.dpsMacros' in macro_body
+
+
 def test_protected_frame_mutations_are_combat_gated():
     assert "CanMutateProtectedFrames" in CORE
     for name in [
