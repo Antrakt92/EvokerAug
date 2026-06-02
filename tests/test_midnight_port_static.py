@@ -826,6 +826,18 @@ def test_public_copy_describes_midnight_buff_tracking():
     assert "Augmentation" in TOC
 
 
+def test_public_copy_does_not_ship_internal_release_gate_language():
+    changelog = CHANGELOG.read_text(encoding="utf-8")
+    forbidden_phrases = [
+        "before public release",
+        "should still be verified",
+        "needs in-game",
+    ]
+    for phrase in forbidden_phrases:
+        assert phrase not in README.lower()
+        assert phrase not in changelog.lower()
+
+
 def test_packager_uses_curated_changelog_for_release_notes():
     assert re.search(r"(?m)^manual-changelog:\s*$", PKGMETA)
     assert re.search(r"(?m)^  filename: CHANGELOG\.md\s*$", PKGMETA)

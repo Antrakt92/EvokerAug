@@ -14,7 +14,7 @@ EvokerAug is a Retail Midnight 12.x helper for Augmentation Evokers who want a c
 
 Install EvokerAug in `Interface\AddOns\EvokerAug`, then type `/aug` in game to open settings. Right-click the EvokerAug frame to select party members, unlock or lock the frame, auto-fill Mythic+ party members, or clear the current frames.
 
-Selected party rows can be clicked to cast the configured spells through the addon secure buttons. This Midnight revival should still be verified in game with `/reload`, party roster changes, combat, and Augmentation buff-click flows before public release.
+Selected party rows can be clicked to cast the configured spells through the addon secure buttons. Because WoW protects click-cast frame changes during combat, roster and settings changes may queue until combat ends.
 
 ## Feedback
 

@@ -50,7 +50,7 @@
 
 ### Known limitations
 
-- This build still needs in-game `/reload`, group, combat, and Augmentation buff-click verification before public release.
+- WoW protects click-cast frame creation, deletion, sorting, and spell updates during combat, so roster and settings changes may apply after combat ends.
 
 ## v1.0.23 - 25-Sep-2024
 
