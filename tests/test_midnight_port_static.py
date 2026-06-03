@@ -774,6 +774,10 @@ def test_prescience_thin_tracker_rows_show_range_state():
     assert "prescienceThinTrackerTestMode and row.isTestRow" in range_body
     assert "UnitExists(row.unit)" in range_body
     assert "UnitInRange(row.unit)" in range_body
+    assert "not issecretvalue(inRange)" in range_body
+    assert "inRange == true" in range_body
+    assert "inRange == false" in range_body
+    assert "if inRange then" not in range_body
     assert 'rangeState = "outOfRange"' in range_body
     assert 'rangeState = "inRange"' in range_body
     assert "row.rangeMarker:SetColorTexture" in range_body
@@ -1038,6 +1042,11 @@ def test_buff_icon_spacing_tracks_icon_size_changes():
 def test_distance_dimming_avoids_secure_frame_alpha_mutations():
     distance_body = function_body(CORE, "CheckDistance")
     assert "playerFrame:SetAlpha" not in distance_body
+    assert "UnitInRange(unit)" in distance_body
+    assert "issecretvalue(inRange)" in distance_body
+    assert "inRange == true" in distance_body
+    assert "inRange == false" in distance_body
+    assert "if inRange then" not in distance_body
     assert "ApplyPlayerFrameVisualAlpha(playerFrame" in distance_body
 
     alpha_body = function_body(CORE, "ApplyPlayerFrameVisualAlpha")

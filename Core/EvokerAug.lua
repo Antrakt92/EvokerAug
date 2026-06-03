@@ -2173,10 +2173,12 @@ local function ApplyPrescienceThinTrackerRangeState(row)
         rangeState = row.testRangeState or "unknown"
     elseif row.unit and UnitExists(row.unit) then
         local inRange = UnitInRange(row.unit)
-        if inRange then
-            rangeState = "inRange"
-        elseif inRange == false then
-            rangeState = "outOfRange"
+        if not issecretvalue(inRange) then
+            if inRange == true then
+                rangeState = "inRange"
+            elseif inRange == false then
+                rangeState = "outOfRange"
+            end
         end
     end
 
@@ -2401,9 +2403,12 @@ local function CheckDistance(playerFrame)
     local unit = playerFrame.unit
     if unit ~= "player" and UnitExists(unit) then
         local inRange = UnitInRange(unit)
-        if inRange then
+        if issecretvalue(inRange) then
+            return
+        end
+        if inRange == true then
             ApplyPlayerFrameVisualAlpha(playerFrame, 0.9)
-        else
+        elseif inRange == false then
             ApplyPlayerFrameVisualAlpha(playerFrame, 0.3)
         end
     end
