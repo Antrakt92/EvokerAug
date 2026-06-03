@@ -48,6 +48,9 @@ local blizzardCompactFrameRefreshPending = false
 local instanceContextGeneration = 0
 local blizzardCompactFrameOverlays = {}
 local offensiveCastWindowsByGUID = {}
+addon.pendingRoleInspectGUIDs = addon.pendingRoleInspectGUIDs or {}
+addon.roleInspectQueue = addon.roleInspectQueue or {}
+addon.roleInspectActiveGUID = nil
 local prescienceThinTrackerFrame
 local prescienceThinTrackerRows = {}
 local prescienceThinTrackerRowOrder = {}
@@ -1038,6 +1041,139 @@ local function IsEligibleGroupUnit(unit)
     return UnitIsConnected(unit)
 end
 
+addon.NormalizeCombatRole = function(combatRole)
+    if combatRole == "DAMAGER" then
+        return "DPS"
+    end
+    if combatRole == "DPS" or combatRole == "TANK" or combatRole == "HEALER" then
+        return combatRole
+    end
+    return nil
+end
+
+addon.GetInspectSpecializationCombatRole = function(unit)
+    if not unit or not UnitExists(unit) then
+        return nil
+    end
+
+    if UnitIsUnit and UnitIsUnit(unit, "player") then
+        if not GetSpecialization or not GetSpecializationInfo then
+            return nil
+        end
+        local specializationIndex = GetSpecialization()
+        if not specializationIndex then
+            return nil
+        end
+        local _, _, _, _, role = GetSpecializationInfo(specializationIndex)
+        return addon.NormalizeCombatRole(role)
+    end
+
+    if not GetInspectSpecialization or not GetSpecializationInfoByID then
+        return nil
+    end
+
+    local specID = GetInspectSpecialization(unit)
+    if not IsCleanPositiveNumber(specID) then
+        return nil
+    end
+
+    local _, _, _, _, role = GetSpecializationInfoByID(specID)
+    return addon.NormalizeCombatRole(role)
+end
+
+addon.DrainRoleInspectQueue = function()
+    if addon.roleInspectActiveGUID then
+        return
+    end
+
+    if combatLockdown or (InCombatLockdown and InCombatLockdown()) then
+        return
+    end
+    if not NotifyInspect then
+        return
+    end
+
+    while #addon.roleInspectQueue > 0 do
+        local guid = table.remove(addon.roleInspectQueue, 1)
+        local unit = addon.pendingRoleInspectGUIDs[guid]
+        if UnitTokenFromGUID then
+            unit = UnitTokenFromGUID(guid) or unit
+        end
+
+        if unit and UnitExists(unit) and UnitIsConnected(unit) and (not CanInspect or CanInspect(unit, false)) then
+            addon.pendingRoleInspectGUIDs[guid] = unit
+            addon.roleInspectActiveGUID = guid
+            NotifyInspect(unit)
+            if C_Timer and C_Timer.After then
+                C_Timer.After(6.0, function()
+                    if addon.roleInspectActiveGUID == guid then
+                        addon.roleInspectActiveGUID = nil
+                        addon.pendingRoleInspectGUIDs[guid] = nil
+                        if ClearInspectPlayer then
+                            ClearInspectPlayer()
+                        end
+                        addon.DrainRoleInspectQueue()
+                    end
+                end)
+            end
+            return
+        end
+
+        addon.pendingRoleInspectGUIDs[guid] = nil
+    end
+end
+
+addon.RequestInspectRoleForUnit = function(unit)
+    if not unit or not UnitExists(unit) then
+        return
+    end
+    if UnitIsUnit and UnitIsUnit(unit, "player") then
+        return
+    end
+    if IsInRaid() then
+        return
+    end
+    if combatLockdown or (InCombatLockdown and InCombatLockdown()) then
+        return
+    end
+    if not NotifyInspect then
+        return
+    end
+    if CanInspect and not CanInspect(unit, false) then
+        return
+    end
+
+    -- WHY: manually formed M+ parties can report role NONE until inspect spec data is cached.
+    local guid = UnitGUID and UnitGUID(unit)
+    if not guid or addon.pendingRoleInspectGUIDs[guid] then
+        return
+    end
+
+    addon.pendingRoleInspectGUIDs[guid] = unit
+    table.insert(addon.roleInspectQueue, guid)
+    addon.DrainRoleInspectQueue()
+end
+
+addon.GetUnitCombatRole = function(unit)
+    if not unit or not UnitExists(unit) then
+        return nil
+    end
+
+    local combatRole = UnitGroupRolesAssigned(unit)
+    combatRole = addon.NormalizeCombatRole(combatRole)
+    if combatRole then
+        return combatRole
+    end
+
+    local inspectRole = addon.GetInspectSpecializationCombatRole(unit)
+    if inspectRole then
+        return inspectRole
+    end
+
+    addon.RequestInspectRoleForUnit(unit)
+    return inspectRole
+end
+
 local function SanitizePosition(position)
     position = type(position) == "table" and position or {}
     local point = position.point
@@ -1531,10 +1667,7 @@ local function IsUnitEligibleForBlizzardCompactHighlight(unit)
         return false
     end
 
-    local combatRole = UnitGroupRolesAssigned(unit)
-    if combatRole == "DAMAGER" then
-        combatRole = "DPS"
-    end
+    local combatRole = addon.GetUnitCombatRole(unit)
 
     return combatRole == "DPS"
 end
@@ -2583,10 +2716,7 @@ local function AddFavoriteFrameForUnit(unitID)
         return
     end
 
-    local combatRole = UnitGroupRolesAssigned(unitID)
-    if combatRole == "DAMAGER" then
-        combatRole = "DPS"
-    end
+    local combatRole = addon.GetUnitCombatRole(unitID)
 
     if name and combatRole and not IsPlayerFrameByIdentity(identityKey) then
         class = strupper(string.gsub(class, "%s+", ""))
@@ -3860,6 +3990,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
     selectedPlayerFrameContainer:RegisterEvent("UNIT_CONNECTION")
     selectedPlayerFrameContainer:RegisterEvent("UNIT_FLAGS")
     selectedPlayerFrameContainer:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
+    selectedPlayerFrameContainer:RegisterEvent("INSPECT_READY")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_LOGOUT")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_ENTERING_WORLD")
@@ -3907,6 +4038,21 @@ function addon:OnEnable() -- PLAYER_LOGIN
         elseif event == "UNIT_CONNECTION" then
             RefreshRuntimeFrames()
             RefreshPrescienceThinTrackerRoster()
+        elseif event == "INSPECT_READY" then
+            local guid = unit
+            if addon.pendingRoleInspectGUIDs[guid] then
+                addon.pendingRoleInspectGUIDs[guid] = nil
+                if addon.roleInspectActiveGUID == guid then
+                    addon.roleInspectActiveGUID = nil
+                end
+                if ClearInspectPlayer then
+                    ClearInspectPlayer()
+                end
+                RefreshRuntimeFrames()
+                RefreshPrescienceThinTrackerRoster()
+                UpdatePrescienceThinTrackerVisibility()
+                addon.DrainRoleInspectQueue()
+            end
         elseif event == "PLAYER_REGEN_DISABLED" then
             combatLockdown = true
             if prescienceThinTrackerTestMode then
@@ -4107,10 +4253,7 @@ local function AddHomePartyInfo(partyMembers, unit)
         return
     end
 
-    local combatRole = UnitGroupRolesAssigned(unit)
-    if combatRole == "DAMAGER" then
-        combatRole = "DPS"
-    end
+    local combatRole = addon.GetUnitCombatRole(unit)
 
     if name and combatRole then
         table.insert(partyMembers,
@@ -4132,11 +4275,7 @@ GetHomePartyInfos = function()
     else
         local identityKey, name = GetUnitIdentity("player")
         local class = GetUnitClassToken("player")
-        local specializationIndex = GetSpecialization() or 0
-        local _, _, _, _, combatRole, _ = GetSpecializationInfo(specializationIndex)
-        if combatRole == "DAMAGER" then
-            combatRole = "DPS"
-        end
+        local combatRole = addon.GetUnitCombatRole("player")
         if identityKey and name and class and combatRole then
             table.insert(partyMembers,
                 { name = name, identityKey = identityKey, class = strupper(string.gsub(class, "%s+", "")), role = combatRole, unit = "player" })

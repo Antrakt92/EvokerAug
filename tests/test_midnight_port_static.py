@@ -21,13 +21,13 @@ RELEASE_VERSION_SCRIPT = ROOT / "scripts" / "check-release-version.py"
 
 def function_body(source: str, name: str) -> str:
     match = re.search(
-        rf"(?:local\s+)?function\s+{re.escape(name)}\b|^{re.escape(name)}\s*=\s*function\b",
+        rf"(?:local\s+)?function\s+{re.escape(name)}\b|^{re.escape(name)}\s*=\s*function\b|^addon\.{re.escape(name)}\s*=\s*function\b",
         source,
         re.M,
     )
     assert match, f"{name} is missing"
     next_match = re.search(
-        r"\n(?:(?:local\s+)?function\s+[\w:]+|[A-Za-z_][A-Za-z0-9_]*\s*=\s*function)",
+        r"\n(?:(?:local\s+)?function\s+[\w:]+|(?:[A-Za-z_][A-Za-z0-9_]*\.)?[A-Za-z_][A-Za-z0-9_]*\s*=\s*function)",
         source[match.end() :],
     )
     end = match.end() + next_match.start() if next_match else len(source)
@@ -92,17 +92,19 @@ def test_midnight_devourer_uses_generic_demon_hunter_dps_path():
     assert "Vengeance" not in CORE
     assert "DEMONHUNTER" not in CORE
 
+    role_body = function_body(CORE, "GetUnitCombatRole")
+    assert "UnitGroupRolesAssigned(unit)" in role_body
+    assert "NormalizeCombatRole(combatRole)" in role_body
+    assert "GetInspectSpecializationCombatRole(unit)" in role_body
+
     add_home_body = function_body(CORE, "AddHomePartyInfo")
     assert "GetUnitClassToken(unit)" in add_home_body
-    assert 'UnitGroupRolesAssigned(unit)' in add_home_body
-    assert 'if combatRole == "DAMAGER" then' in add_home_body
-    assert 'combatRole = "DPS"' in add_home_body
+    assert "GetUnitCombatRole(unit)" in add_home_body
     assert 'class = strupper(string.gsub(class, "%s+", ""))' in add_home_body
 
     favorite_body = function_body(CORE, "AddFavoriteFrameForUnit")
     assert "GetUnitClassToken(unitID)" in favorite_body
-    assert 'UnitGroupRolesAssigned(unitID)' in favorite_body
-    assert 'combatRole = "DPS"' in favorite_body
+    assert "GetUnitCombatRole(unitID)" in favorite_body
 
     autofill_body = function_body(CORE, "FrameAutoFill")
     assert 'member.role == "DPS"' in autofill_body
@@ -584,7 +586,7 @@ def test_blizzard_compact_frame_highlights_reuse_offensive_state():
 
     eligibility_body = function_body(CORE, "IsUnitEligibleForBlizzardCompactHighlight")
     assert 'UnitIsUnit(unit, "player")' in eligibility_body
-    assert 'if combatRole == "DAMAGER" then' in eligibility_body
+    assert "local combatRole = addon.GetUnitCombatRole(unit)" in eligibility_body
     assert 'return combatRole == "DPS"' in eligibility_body
 
     refresh_body = function_body(CORE, "RefreshBlizzardCompactFrameHighlightsForAllUnits")
@@ -860,6 +862,79 @@ def test_prescience_thin_tracker_retries_party_roster_without_autofill_gate():
     group_body = CORE[CORE.index('if event == "GROUP_ROSTER_UPDATE"') :]
     group_body = group_body[: group_body.index('elseif event == "UNIT_CONNECTION"')]
     assert "SchedulePrescienceThinTrackerRosterRefresh(instanceContextGeneration, instanceType)" in group_body
+
+
+def test_unknown_party_roles_fall_back_to_inspect_specialization():
+    assert "addon.pendingRoleInspectGUIDs = addon.pendingRoleInspectGUIDs or {}" in CORE
+    assert "addon.roleInspectQueue = addon.roleInspectQueue or {}" in CORE
+    assert "addon.roleInspectActiveGUID" in CORE
+    assert "NormalizeCombatRole" in CORE
+    assert "GetInspectSpecializationCombatRole" in CORE
+    assert "DrainRoleInspectQueue" in CORE
+    assert "RequestInspectRoleForUnit" in CORE
+    assert "GetUnitCombatRole" in CORE
+
+    normalize_body = function_body(CORE, "NormalizeCombatRole")
+    assert 'combatRole == "DAMAGER"' in normalize_body
+    assert 'return "DPS"' in normalize_body
+    assert 'combatRole == "DPS" or combatRole == "TANK" or combatRole == "HEALER"' in normalize_body
+    assert "return nil" in normalize_body
+
+    inspect_body = function_body(CORE, "GetInspectSpecializationCombatRole")
+    assert 'UnitIsUnit(unit, "player")' in inspect_body
+    assert "GetSpecialization()" in inspect_body
+    assert "GetSpecializationInfo(specializationIndex)" in inspect_body
+    assert "GetInspectSpecialization(unit)" in inspect_body
+    assert "GetSpecializationInfoByID(specID)" in inspect_body
+    assert "NormalizeCombatRole(role)" in inspect_body
+
+    drain_body = function_body(CORE, "DrainRoleInspectQueue")
+    assert "addon.roleInspectActiveGUID" in drain_body
+    assert "table.remove(addon.roleInspectQueue, 1)" in drain_body
+    assert "NotifyInspect(unit)" in drain_body
+    assert "C_Timer.After(6.0" in drain_body
+    assert "ClearInspectPlayer()" in drain_body
+    assert "addon.DrainRoleInspectQueue()" in drain_body
+
+    request_body = function_body(CORE, "RequestInspectRoleForUnit")
+    assert 'UnitIsUnit(unit, "player")' in request_body
+    assert "InCombatLockdown()" in request_body
+    assert "CanInspect(unit, false)" in request_body
+    assert "NotifyInspect(unit)" not in request_body
+    assert "addon.pendingRoleInspectGUIDs[guid] = unit" in request_body
+    assert "table.insert(addon.roleInspectQueue, guid)" in request_body
+    assert "addon.DrainRoleInspectQueue()" in request_body
+
+    role_body = function_body(CORE, "GetUnitCombatRole")
+    assert "local combatRole = UnitGroupRolesAssigned(unit)" in role_body
+    assert "combatRole = addon.NormalizeCombatRole(combatRole)" in role_body
+    assert "local inspectRole = addon.GetInspectSpecializationCombatRole(unit)" in role_body
+    assert "addon.RequestInspectRoleForUnit(unit)" in role_body
+    assert "return inspectRole" in role_body
+
+    add_home_body = function_body(CORE, "AddHomePartyInfo")
+    assert "local combatRole = addon.GetUnitCombatRole(unit)" in add_home_body
+
+    compact_body = function_body(CORE, "IsUnitEligibleForBlizzardCompactHighlight")
+    assert "addon.GetUnitCombatRole(unit)" in compact_body
+    assert "UnitGroupRolesAssigned(unit)" not in compact_body
+
+
+def test_inspect_ready_refreshes_thin_tracker_after_role_resolution():
+    on_enable_body = function_body(CORE, "addon:OnEnable")
+    assert 'selectedPlayerFrameContainer:RegisterEvent("INSPECT_READY")' in on_enable_body
+
+    inspect_ready_body = CORE[CORE.index('elseif event == "INSPECT_READY"') :]
+    inspect_ready_body = inspect_ready_body[: inspect_ready_body.index('elseif event == "PLAYER_REGEN_DISABLED"')]
+    assert "local guid = unit" in inspect_ready_body
+    assert "addon.pendingRoleInspectGUIDs[guid]" in inspect_ready_body
+    assert "addon.pendingRoleInspectGUIDs[guid] = nil" in inspect_ready_body
+    assert "addon.roleInspectActiveGUID == guid" in inspect_ready_body
+    assert "ClearInspectPlayer()" in inspect_ready_body
+    assert "RefreshRuntimeFrames()" in inspect_ready_body
+    assert "RefreshPrescienceThinTrackerRoster()" in inspect_ready_body
+    assert "UpdatePrescienceThinTrackerVisibility()" in inspect_ready_body
+    assert "addon.DrainRoleInspectQueue()" in inspect_ready_body
 
 
 def test_prescience_thin_tracker_test_mode_is_runtime_only():
