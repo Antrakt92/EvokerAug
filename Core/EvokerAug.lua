@@ -1843,6 +1843,32 @@ local function IsPrescienceThinTrackerRuntimeAllowed()
     return ShouldShowForInstanceType(instanceType)
 end
 
+local function SchedulePrescienceThinTrackerRosterRefresh(generation, expectedInstanceType)
+    if expectedInstanceType == "raid" then
+        return
+    end
+
+    local attempts = 0
+    local function retry()
+        if not IsCurrentInstanceContext(generation, expectedInstanceType) then
+            return
+        end
+        if not IsPrescienceThinTrackerRuntimeAllowed() then
+            return
+        end
+
+        RefreshPrescienceThinTrackerRoster()
+        UpdatePrescienceThinTrackerVisibility()
+
+        attempts = attempts + 1
+        if attempts < 6 then
+            C_Timer.After(1.0, retry)
+        end
+    end
+
+    C_Timer.After(0.5, retry)
+end
+
 local function ClearPrescienceThinTrackerRows()
     for _, row in pairs(prescienceThinTrackerRows) do
         if row.frame then
@@ -3874,8 +3900,10 @@ function addon:OnEnable() -- PLAYER_LOGIN
 
     selectedPlayerFrameContainer:SetScript("OnEvent", function(self, event, unit, info, spellID)
         if event == "GROUP_ROSTER_UPDATE" then
+            local _, instanceType = IsInInstance()
             RefreshRuntimeFrames()
             RefreshPrescienceThinTrackerRoster()
+            SchedulePrescienceThinTrackerRosterRefresh(instanceContextGeneration, instanceType)
         elseif event == "UNIT_CONNECTION" then
             RefreshRuntimeFrames()
             RefreshPrescienceThinTrackerRoster()
@@ -3917,8 +3945,9 @@ function addon:OnEnable() -- PLAYER_LOGIN
         elseif event == "PLAYER_ENTERING_WORLD" then
             instanceContextGeneration = instanceContextGeneration + 1
             local generation = instanceContextGeneration
+            local _, instanceType = IsInInstance()
+            SchedulePrescienceThinTrackerRosterRefresh(generation, instanceType)
             if addon.db.profile.autoFrameFill then
-                local _, instanceType = IsInInstance()
                 if instanceType == "party" then
                     C_Timer.After(4.5, function()
                         if not addon.db.profile.autoFrameFill or not IsCurrentInstanceContext(generation, "party") then

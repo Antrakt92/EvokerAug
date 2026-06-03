@@ -838,6 +838,30 @@ def test_prescience_thin_tracker_wires_into_existing_events_without_replacing_ol
     assert "RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)" in aura_event_body
 
 
+def test_prescience_thin_tracker_retries_party_roster_without_autofill_gate():
+    assert "SchedulePrescienceThinTrackerRosterRefresh" in CORE
+
+    scheduler_body = function_body(CORE, "SchedulePrescienceThinTrackerRosterRefresh")
+    assert 'if expectedInstanceType == "raid" then' in scheduler_body
+    assert "IsCurrentInstanceContext(generation, expectedInstanceType)" in scheduler_body
+    assert "RefreshPrescienceThinTrackerRoster()" in scheduler_body
+    assert "UpdatePrescienceThinTrackerVisibility()" in scheduler_body
+    assert "C_Timer.After(0.5, retry)" in scheduler_body
+    assert "C_Timer.After(1.0, retry)" in scheduler_body
+    assert "addon.db.profile.autoFrameFill" not in scheduler_body
+
+    entering_body = CORE[CORE.index('elseif event == "PLAYER_ENTERING_WORLD"') :]
+    entering_body = entering_body[: entering_body.index('elseif event == "PLAYER_SPECIALIZATION_CHANGED"')]
+    assert "local _, instanceType = IsInInstance()" in entering_body
+    schedule_call = "SchedulePrescienceThinTrackerRosterRefresh(generation, instanceType)"
+    assert schedule_call in entering_body
+    assert entering_body.index(schedule_call) < entering_body.index("if addon.db.profile.autoFrameFill then")
+
+    group_body = CORE[CORE.index('if event == "GROUP_ROSTER_UPDATE"') :]
+    group_body = group_body[: group_body.index('elseif event == "UNIT_CONNECTION"')]
+    assert "SchedulePrescienceThinTrackerRosterRefresh(instanceContextGeneration, instanceType)" in group_body
+
+
 def test_prescience_thin_tracker_test_mode_is_runtime_only():
     assert "prescienceThinTrackerTestMode" in CORE
     assert "PRESCIENCE_THIN_TRACKER_TEST_MEMBERS" in CORE
