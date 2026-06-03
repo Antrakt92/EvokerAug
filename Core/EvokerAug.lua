@@ -137,6 +137,66 @@ local function IsUsableAuraData(aura)
         and IsCleanAuraIcon(aura.icon)
 end
 
+addon.GetCleanBooleanValue = function(value)
+    local okSecret, secret = pcall(issecretvalue, value)
+    if not okSecret then
+        return nil
+    end
+
+    local okIsSecret, isSecret = pcall(function() return secret == true end)
+    if not okIsSecret or isSecret == true then
+        return nil
+    end
+
+    local okTrue, isTrue = pcall(function() return value == true end)
+    if okTrue and isTrue == true then
+        return true
+    end
+
+    local okFalse, isFalse = pcall(function() return value == false end)
+    if okFalse and isFalse == true then
+        return false
+    end
+
+    return nil
+end
+
+addon.GetCleanBooleanResult = function(fn, ...)
+    if not fn then
+        return nil
+    end
+
+    local ok, value = pcall(fn, ...)
+    if not ok then
+        return nil
+    end
+    return addon.GetCleanBooleanValue(value)
+end
+
+addon.UnitExistsClean = function(unit)
+    return addon.GetCleanBooleanResult(UnitExists, unit) == true
+end
+
+addon.UnitIsConnectedClean = function(unit)
+    return addon.GetCleanBooleanResult(UnitIsConnected, unit) == true
+end
+
+addon.UnitIsUnitClean = function(unit, otherUnit)
+    return addon.GetCleanBooleanResult(UnitIsUnit, unit, otherUnit) == true
+end
+
+addon.UnitInRangeClean = function(unit)
+    return addon.GetCleanBooleanResult(UnitInRange, unit)
+end
+
+addon.CanInspectClean = function(unit)
+    return addon.GetCleanBooleanResult(CanInspect, unit, false) == true
+end
+
+addon.UnitIsDeadOrGhostClean = function(unit)
+    return addon.GetCleanBooleanResult(UnitIsDeadOrGhost, unit) == true
+end
+
 local function CanMutateProtectedFrames()
     return not combatLockdown and not (InCombatLockdown and InCombatLockdown())
 end
@@ -207,7 +267,7 @@ end
 
 local function FindAuraBySpellID(unit, spellID)
     spellID = GetCleanPositiveSpellID(spellID)
-    if not unit or not spellID or not UnitExists(unit) then
+    if not unit or not spellID or not addon.UnitExistsClean(unit) then
         return nil
     end
 
@@ -235,7 +295,7 @@ end
 
 local function HasHelpfulAuraBySpellID(unit, spellID)
     spellID = GetCleanPositiveSpellID(spellID)
-    if not unit or not spellID or not UnitExists(unit) then
+    if not unit or not spellID or not addon.UnitExistsClean(unit) then
         return false
     end
 
@@ -1034,11 +1094,11 @@ local function GetUnitIdentity(unit)
 end
 
 local function IsEligibleGroupUnit(unit)
-    if not unit or not UnitExists(unit) then
+    if not unit or not addon.UnitExistsClean(unit) then
         return false
     end
 
-    return UnitIsConnected(unit)
+    return addon.UnitIsConnectedClean(unit)
 end
 
 addon.NormalizeCombatRole = function(combatRole)
@@ -1052,11 +1112,11 @@ addon.NormalizeCombatRole = function(combatRole)
 end
 
 addon.GetInspectSpecializationCombatRole = function(unit)
-    if not unit or not UnitExists(unit) then
+    if not unit or not addon.UnitExistsClean(unit) then
         return nil
     end
 
-    if UnitIsUnit and UnitIsUnit(unit, "player") then
+    if addon.UnitIsUnitClean(unit, "player") then
         if not GetSpecialization or not GetSpecializationInfo then
             return nil
         end
@@ -1100,7 +1160,7 @@ addon.DrainRoleInspectQueue = function()
             unit = UnitTokenFromGUID(guid) or unit
         end
 
-        if unit and UnitExists(unit) and UnitIsConnected(unit) and (not CanInspect or CanInspect(unit, false)) then
+        if unit and addon.UnitExistsClean(unit) and addon.UnitIsConnectedClean(unit) and addon.CanInspectClean(unit) then
             addon.pendingRoleInspectGUIDs[guid] = unit
             addon.roleInspectActiveGUID = guid
             NotifyInspect(unit)
@@ -1124,10 +1184,10 @@ addon.DrainRoleInspectQueue = function()
 end
 
 addon.RequestInspectRoleForUnit = function(unit)
-    if not unit or not UnitExists(unit) then
+    if not unit or not addon.UnitExistsClean(unit) then
         return
     end
-    if UnitIsUnit and UnitIsUnit(unit, "player") then
+    if addon.UnitIsUnitClean(unit, "player") then
         return
     end
     if IsInRaid() then
@@ -1139,7 +1199,7 @@ addon.RequestInspectRoleForUnit = function(unit)
     if not NotifyInspect then
         return
     end
-    if CanInspect and not CanInspect(unit, false) then
+    if not addon.CanInspectClean(unit) then
         return
     end
 
@@ -1155,7 +1215,7 @@ addon.RequestInspectRoleForUnit = function(unit)
 end
 
 addon.GetUnitCombatRole = function(unit)
-    if not unit or not UnitExists(unit) then
+    if not unit or not addon.UnitExistsClean(unit) then
         return nil
     end
 
@@ -1412,7 +1472,7 @@ local function ApplyOffensiveBuffVisualState(playerFrame, state)
 end
 
 local function GetOffensiveCastWindowStateForUnit(unit)
-    if not unit or not UnitExists(unit) then
+    if not unit or not addon.UnitExistsClean(unit) then
         return OFFENSIVE_STATE_NONE
     end
 
@@ -1557,7 +1617,7 @@ local function GetOffensiveBuffDefinitionForCastSpellID(spellID)
 end
 
 local function RecordOffensiveCastWindow(unit, spellID)
-    if not unit or not UnitExists(unit) or (UnitIsUnit and UnitIsUnit(unit, "player")) then
+    if not unit or not addon.UnitExistsClean(unit) or addon.UnitIsUnitClean(unit, "player") then
         return
     end
 
@@ -1660,10 +1720,10 @@ local function EnsureBlizzardCompactFrameOverlay(frame)
 end
 
 local function IsUnitEligibleForBlizzardCompactHighlight(unit)
-    if not unit or not UnitExists(unit) then
+    if not unit or not addon.UnitExistsClean(unit) then
         return false
     end
-    if UnitIsUnit and UnitIsUnit(unit, "player") then
+    if addon.UnitIsUnitClean(unit, "player") then
         return false
     end
 
@@ -2171,14 +2231,12 @@ local function ApplyPrescienceThinTrackerRangeState(row)
     local rangeState = "unknown"
     if prescienceThinTrackerTestMode and row.isTestRow then
         rangeState = row.testRangeState or "unknown"
-    elseif row.unit and UnitExists(row.unit) then
-        local inRange = UnitInRange(row.unit)
-        if not issecretvalue(inRange) then
-            if inRange == true then
-                rangeState = "inRange"
-            elseif inRange == false then
-                rangeState = "outOfRange"
-            end
+    elseif row.unit and addon.UnitExistsClean(row.unit) then
+        local inRange = addon.UnitInRangeClean(row.unit)
+        if inRange == true then
+            rangeState = "inRange"
+        elseif inRange == false then
+            rangeState = "outOfRange"
         end
     end
 
@@ -2313,7 +2371,7 @@ RefreshPrescienceThinTrackerRoster = function()
     prescienceThinTrackerRowOrder = {}
     local partyMembers = GetHomePartyInfos()
     for _, member in ipairs(partyMembers) do
-        if member.role == "DPS" and not UnitIsUnit(member.unit, "player") then
+        if member.role == "DPS" and not addon.UnitIsUnitClean(member.unit, "player") then
             local row = CreatePrescienceThinTrackerRow(member)
             if row then
                 row.isTestRow = nil
@@ -2401,11 +2459,8 @@ end
 
 local function CheckDistance(playerFrame)
     local unit = playerFrame.unit
-    if unit ~= "player" and UnitExists(unit) then
-        local inRange = UnitInRange(unit)
-        if issecretvalue(inRange) then
-            return
-        end
+    if unit ~= "player" and addon.UnitExistsClean(unit) then
+        local inRange = addon.UnitInRangeClean(unit)
         if inRange == true then
             ApplyPlayerFrameVisualAlpha(playerFrame, 0.9)
         elseif inRange == false then
@@ -4176,7 +4231,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
             RecordOffensiveCastWindow(unit, spellID)
         elseif event == "UNIT_FLAGS" then
             if unit ~= "player" then
-                local isDeadOrGhost = UnitIsDeadOrGhost(unit)
+                local isDeadOrGhost = addon.UnitIsDeadOrGhostClean(unit)
                 if isDeadOrGhost then
                     local frameIndex = GetPlayerFrameIndexByUnit(unit)
                     if selectedPlayerFrames[frameIndex] then

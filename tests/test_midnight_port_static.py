@@ -221,8 +221,8 @@ def test_disconnected_units_are_filtered_across_refresh_paths():
     assert "IsEligibleGroupUnit" in CORE
 
     helper_body = function_body(CORE, "IsEligibleGroupUnit")
-    assert "UnitExists(unit)" in helper_body
-    assert "UnitIsConnected(unit)" in helper_body
+    assert "addon.UnitExistsClean(unit)" in helper_body
+    assert "addon.UnitIsConnectedClean(unit)" in helper_body
 
     add_home_body = function_body(CORE, "AddHomePartyInfo")
     assert "if not IsEligibleGroupUnit(unit) then" in add_home_body
@@ -513,11 +513,39 @@ def test_offensive_cast_windows_use_spellcast_events_not_cooldown_apis():
     assert "COMBAT_LOG_EVENT_UNFILTERED" not in CORE
 
     record_body = function_body(CORE, "RecordOffensiveCastWindow")
+    assert "addon.UnitExistsClean(unit)" in record_body
+    assert 'addon.UnitIsUnitClean(unit, "player")' in record_body
+    assert "UnitExists(unit)" not in record_body
+    assert "UnitIsUnit(unit" not in record_body
     assert "GetOffensiveBuffDefinitionForCastSpellID(spellID)" in record_body
     assert "UnitGUID(unit)" in record_body
     assert "GetTime() + castWindow" in record_body
     assert "C_Timer.After(castWindow" in record_body
     assert "RefreshOffensiveHighlightSurfacesForUnit(unit)" in record_body
+
+    window_body = function_body(CORE, "GetOffensiveCastWindowStateForUnit")
+    assert "addon.UnitExistsClean(unit)" in window_body
+    assert "UnitExists(unit)" not in window_body
+
+
+def test_unit_boolean_api_results_are_secret_safe():
+    assert "addon.GetCleanBooleanValue" in CORE
+    assert "addon.GetCleanBooleanResult" in CORE
+    assert "addon.UnitExistsClean" in CORE
+    assert "addon.UnitIsUnitClean" in CORE
+    assert "addon.UnitInRangeClean" in CORE
+    assert "addon.UnitIsDeadOrGhostClean" in CORE
+
+    clean_body = function_body(CORE, "GetCleanBooleanValue")
+    assert "pcall(issecretvalue, value)" in clean_body
+    assert "pcall(function() return value == true end)" in clean_body
+    assert "pcall(function() return value == false end)" in clean_body
+    assert "if value then" not in clean_body
+    assert "not value" not in clean_body
+
+    result_body = function_body(CORE, "GetCleanBooleanResult")
+    assert "pcall(fn, ...)" in result_body
+    assert "addon.GetCleanBooleanValue(value)" in result_body
 
 
 def test_offensive_buff_profile_state_is_separate_from_tracked_buff_icons():
@@ -585,7 +613,7 @@ def test_blizzard_compact_frame_highlights_reuse_offensive_state():
     assert "EnsureBlizzardCompactFrameOverlay(frame)" in update_body
 
     eligibility_body = function_body(CORE, "IsUnitEligibleForBlizzardCompactHighlight")
-    assert 'UnitIsUnit(unit, "player")' in eligibility_body
+    assert 'addon.UnitIsUnitClean(unit, "player")' in eligibility_body
     assert "local combatRole = addon.GetUnitCombatRole(unit)" in eligibility_body
     assert 'return combatRole == "DPS"' in eligibility_body
 
@@ -745,7 +773,7 @@ def test_prescience_thin_tracker_tracks_dps_prescience_only():
     roster_body = function_body(CORE, "RefreshPrescienceThinTrackerRoster")
     assert "GetHomePartyInfos()" in roster_body
     assert 'member.role == "DPS"' in roster_body
-    assert 'UnitIsUnit(member.unit, "player")' in roster_body
+    assert 'addon.UnitIsUnitClean(member.unit, "player")' in roster_body
     assert "CreatePrescienceThinTrackerRow(member)" in roster_body
 
     aura_body = function_body(CORE, "RefreshPrescienceThinTrackerAuras")
@@ -772,9 +800,11 @@ def test_prescience_thin_tracker_rows_show_range_state():
 
     range_body = function_body(CORE, "ApplyPrescienceThinTrackerRangeState")
     assert "prescienceThinTrackerTestMode and row.isTestRow" in range_body
-    assert "UnitExists(row.unit)" in range_body
-    assert "UnitInRange(row.unit)" in range_body
-    assert "not issecretvalue(inRange)" in range_body
+    assert "addon.UnitExistsClean(row.unit)" in range_body
+    assert "addon.UnitInRangeClean(row.unit)" in range_body
+    assert "UnitExists(row.unit)" not in range_body
+    assert "UnitInRange(row.unit)" not in range_body
+    assert "issecretvalue(inRange)" not in range_body
     assert "inRange == true" in range_body
     assert "inRange == false" in range_body
     assert "if inRange then" not in range_body
@@ -885,7 +915,7 @@ def test_unknown_party_roles_fall_back_to_inspect_specialization():
     assert "return nil" in normalize_body
 
     inspect_body = function_body(CORE, "GetInspectSpecializationCombatRole")
-    assert 'UnitIsUnit(unit, "player")' in inspect_body
+    assert 'addon.UnitIsUnitClean(unit, "player")' in inspect_body
     assert "GetSpecialization()" in inspect_body
     assert "GetSpecializationInfo(specializationIndex)" in inspect_body
     assert "GetInspectSpecialization(unit)" in inspect_body
@@ -901,9 +931,9 @@ def test_unknown_party_roles_fall_back_to_inspect_specialization():
     assert "addon.DrainRoleInspectQueue()" in drain_body
 
     request_body = function_body(CORE, "RequestInspectRoleForUnit")
-    assert 'UnitIsUnit(unit, "player")' in request_body
+    assert 'addon.UnitIsUnitClean(unit, "player")' in request_body
     assert "InCombatLockdown()" in request_body
-    assert "CanInspect(unit, false)" in request_body
+    assert "addon.CanInspectClean(unit)" in request_body
     assert "NotifyInspect(unit)" not in request_body
     assert "addon.pendingRoleInspectGUIDs[guid] = unit" in request_body
     assert "table.insert(addon.roleInspectQueue, guid)" in request_body
@@ -1042,12 +1072,20 @@ def test_buff_icon_spacing_tracks_icon_size_changes():
 def test_distance_dimming_avoids_secure_frame_alpha_mutations():
     distance_body = function_body(CORE, "CheckDistance")
     assert "playerFrame:SetAlpha" not in distance_body
-    assert "UnitInRange(unit)" in distance_body
-    assert "issecretvalue(inRange)" in distance_body
+    assert "addon.UnitExistsClean(unit)" in distance_body
+    assert "addon.UnitInRangeClean(unit)" in distance_body
+    assert "UnitExists(unit)" not in distance_body
+    assert "UnitInRange(unit)" not in distance_body
+    assert "issecretvalue(inRange)" not in distance_body
     assert "inRange == true" in distance_body
     assert "inRange == false" in distance_body
     assert "if inRange then" not in distance_body
     assert "ApplyPlayerFrameVisualAlpha(playerFrame" in distance_body
+
+    unit_flags_body = CORE[CORE.index('elseif event == "UNIT_FLAGS"') :]
+    unit_flags_body = unit_flags_body[: unit_flags_body.index("end\n    end)")]
+    assert "addon.UnitIsDeadOrGhostClean(unit)" in unit_flags_body
+    assert "UnitIsDeadOrGhost(unit)" not in unit_flags_body
 
     alpha_body = function_body(CORE, "ApplyPlayerFrameVisualAlpha")
     assert "playerFrame.visualAlpha = alpha" in alpha_body
