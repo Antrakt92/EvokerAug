@@ -58,8 +58,8 @@ local prescienceThinTrackerUpdateElapsed = 0
 local prescienceThinTrackerTestMode = false
 local PRESCIENCE_THIN_TRACKER_TEST_DURATION = 18
 local PRESCIENCE_THIN_TRACKER_TEST_MEMBERS = {
-    { identityKey = "test-thin-tracker-mage", name = "Test Mage", class = "MAGE", unit = "player", remaining = 17, testRangeState = "inRange", testOffensiveState = OFFENSIVE_STATE_MAJOR },
-    { identityKey = "test-thin-tracker-rogue", name = "Test Rogue", class = "ROGUE", unit = "player", remaining = 10, testRangeState = "outOfRange", testOffensiveState = OFFENSIVE_STATE_MINOR },
+    { identityKey = "test-thin-tracker-mage", name = "Test Mage", class = "MAGE", unit = "player", remaining = 17, testRangeState = "inRange", testOffensiveState = OFFENSIVE_STATE_MAJOR, testOffensiveIcon = 135824 },
+    { identityKey = "test-thin-tracker-rogue", name = "Test Rogue", class = "ROGUE", unit = "player", remaining = 10, testRangeState = "outOfRange", testOffensiveState = OFFENSIVE_STATE_MINOR, testOffensiveIcon = 236283 },
 }
 local CheckShoworHide
 local HideAllSubFrames
@@ -126,6 +126,53 @@ local function IsCleanAuraIcon(value)
 
     local valueType = type(value)
     return valueType == "number" or valueType == "string"
+end
+
+addon.GetOffensiveBuffIcon = function(spellID, definition, aura)
+    if aura and IsCleanAuraIcon(aura.icon) then
+        return aura.icon
+    end
+
+    if type(definition) == "table" then
+        if IsCleanAuraIcon(definition.iconID) then
+            return definition.iconID
+        end
+        if IsCleanAuraIcon(definition.icon) then
+            return definition.icon
+        end
+    end
+
+    local cleanSpellID = GetCleanPositiveSpellID(spellID)
+    if cleanSpellID and C_Spell and C_Spell.GetSpellInfo then
+        local ok, spellInfo = pcall(C_Spell.GetSpellInfo, cleanSpellID)
+        if ok and type(spellInfo) == "table" and IsCleanAuraIcon(spellInfo.iconID) then
+            return spellInfo.iconID
+        end
+    end
+
+    local castSpellID = type(definition) == "table" and GetCleanPositiveSpellID(definition.castSpellID)
+    if castSpellID and C_Spell and C_Spell.GetSpellInfo then
+        local ok, spellInfo = pcall(C_Spell.GetSpellInfo, castSpellID)
+        if ok and type(spellInfo) == "table" and IsCleanAuraIcon(spellInfo.iconID) then
+            return spellInfo.iconID
+        end
+    end
+
+    if cleanSpellID and C_Spell and C_Spell.GetSpellTexture then
+        local ok, texture = pcall(C_Spell.GetSpellTexture, cleanSpellID)
+        if ok and IsCleanAuraIcon(texture) then
+            return texture
+        end
+    end
+
+    if castSpellID and C_Spell and C_Spell.GetSpellTexture then
+        local ok, texture = pcall(C_Spell.GetSpellTexture, castSpellID)
+        if ok and IsCleanAuraIcon(texture) then
+            return texture
+        end
+    end
+
+    return nil
 end
 
 local function IsUsableAuraData(aura)
@@ -1473,19 +1520,21 @@ end
 
 local function GetOffensiveCastWindowStateForUnit(unit)
     if not unit or not addon.UnitExistsClean(unit) then
-        return OFFENSIVE_STATE_NONE
+        return OFFENSIVE_STATE_NONE, nil
     end
 
     local guid = UnitGUID(unit)
     local windows = guid and offensiveCastWindowsByGUID[guid]
     if not windows then
-        return OFFENSIVE_STATE_NONE
+        return OFFENSIVE_STATE_NONE, nil
     end
 
     local now = GetTime()
     local hasMajor = false
     local hasMinor = false
     local hasAnyWindow = false
+    local majorIcon
+    local minorIcon
 
     for spellID, window in pairs(windows) do
         if type(window) == "table" and IsCleanNumber(window.expires) and window.expires > now and
@@ -1493,8 +1542,12 @@ local function GetOffensiveCastWindowStateForUnit(unit)
             hasAnyWindow = true
             if window.tier == OFFENSIVE_TIER_MAJOR then
                 hasMajor = true
+                majorIcon = majorIcon or window.icon or addon.GetOffensiveBuffIcon(spellID,
+                    addon.OffensiveBuffList and addon.OffensiveBuffList[spellID])
             elseif window.tier == OFFENSIVE_TIER_MINOR then
                 hasMinor = true
+                minorIcon = minorIcon or window.icon or addon.GetOffensiveBuffIcon(spellID,
+                    addon.OffensiveBuffList and addon.OffensiveBuffList[spellID])
             end
         else
             windows[spellID] = nil
@@ -1503,41 +1556,47 @@ local function GetOffensiveCastWindowStateForUnit(unit)
 
     if not hasAnyWindow then
         offensiveCastWindowsByGUID[guid] = nil
-        return OFFENSIVE_STATE_NONE
+        return OFFENSIVE_STATE_NONE, nil
     end
     if hasMajor and hasMinor then
-        return OFFENSIVE_STATE_BOTH
+        return OFFENSIVE_STATE_BOTH, majorIcon or minorIcon
     end
     if hasMajor then
-        return OFFENSIVE_STATE_MAJOR
+        return OFFENSIVE_STATE_MAJOR, majorIcon
     end
     if hasMinor then
-        return OFFENSIVE_STATE_MINOR
+        return OFFENSIVE_STATE_MINOR, minorIcon
     end
-    return OFFENSIVE_STATE_NONE
+    return OFFENSIVE_STATE_NONE, nil
 end
 
 local function GetOffensiveStateForUnit(unit)
     if not unit or not addon.db or not addon.db.profile then
-        return OFFENSIVE_STATE_NONE
+        return OFFENSIVE_STATE_NONE, nil
     end
 
     EnsureOffensiveBuffStateTables()
     if addon.db.profile.offensiveBuffs.enabled == false then
-        return OFFENSIVE_STATE_NONE
+        return OFFENSIVE_STATE_NONE, nil
     end
 
     local hasMajor = false
     local hasMinor = false
+    local majorIcon
+    local minorIcon
     local defaultList = addon.OffensiveBuffList or {}
 
     for spellID in pairs(defaultList) do
         if IsOffensiveBuffEnabled(spellID) and HasHelpfulAuraBySpellID(unit, spellID) then
-            local _, tier = GetOffensiveBuffDefinition(spellID)
+            local definition, tier = GetOffensiveBuffDefinition(spellID)
+            local aura = FindAuraBySpellID(unit, spellID)
+            local icon = addon.GetOffensiveBuffIcon(spellID, definition, aura)
             if tier == OFFENSIVE_TIER_MAJOR then
                 hasMajor = true
+                majorIcon = majorIcon or icon
             elseif tier == OFFENSIVE_TIER_MINOR then
                 hasMinor = true
+                minorIcon = minorIcon or icon
             end
         end
     end
@@ -1545,35 +1604,43 @@ local function GetOffensiveStateForUnit(unit)
     local custom = addon.db.profile.offensiveBuffs.custom or {}
     for spellID in pairs(custom) do
         if not defaultList[spellID] and IsOffensiveBuffEnabled(spellID) and HasHelpfulAuraBySpellID(unit, spellID) then
-            local _, tier = GetOffensiveBuffDefinition(spellID)
+            local definition, tier = GetOffensiveBuffDefinition(spellID)
+            local aura = FindAuraBySpellID(unit, spellID)
+            local icon = addon.GetOffensiveBuffIcon(spellID, definition, aura)
             if tier == OFFENSIVE_TIER_MAJOR then
                 hasMajor = true
+                majorIcon = majorIcon or icon
             elseif tier == OFFENSIVE_TIER_MINOR then
                 hasMinor = true
+                minorIcon = minorIcon or icon
             end
         end
     end
 
-    local castWindowState = GetOffensiveCastWindowStateForUnit(unit)
+    local castWindowState, castWindowIcon = GetOffensiveCastWindowStateForUnit(unit)
     if castWindowState == OFFENSIVE_STATE_BOTH then
         hasMajor = true
         hasMinor = true
+        majorIcon = majorIcon or castWindowIcon
+        minorIcon = minorIcon or castWindowIcon
     elseif castWindowState == OFFENSIVE_STATE_MAJOR then
         hasMajor = true
+        majorIcon = majorIcon or castWindowIcon
     elseif castWindowState == OFFENSIVE_STATE_MINOR then
         hasMinor = true
+        minorIcon = minorIcon or castWindowIcon
     end
 
     if hasMajor and hasMinor then
-        return OFFENSIVE_STATE_BOTH
+        return OFFENSIVE_STATE_BOTH, majorIcon or minorIcon
     end
     if hasMajor then
-        return OFFENSIVE_STATE_MAJOR
+        return OFFENSIVE_STATE_MAJOR, majorIcon
     end
     if hasMinor then
-        return OFFENSIVE_STATE_MINOR
+        return OFFENSIVE_STATE_MINOR, minorIcon
     end
-    return OFFENSIVE_STATE_NONE
+    return OFFENSIVE_STATE_NONE, nil
 end
 
 RefreshOffensiveBuffHighlight = function(playerFrame, unit)
@@ -1640,6 +1707,7 @@ local function RecordOffensiveCastWindow(unit, spellID)
     offensiveCastWindowsByGUID[guid][auraSpellID] = {
         tier = tier,
         expires = GetTime() + castWindow,
+        icon = addon.GetOffensiveBuffIcon(auraSpellID, definition),
     }
 
     RefreshOffensiveHighlightSurfacesForUnit(unit)
@@ -2064,6 +2132,11 @@ end
 
 local function ClearPrescienceThinTrackerRows()
     for _, row in pairs(prescienceThinTrackerRows) do
+        if row.offensiveIconFrame then
+            LibCustomGlow.PixelGlow_Stop(row.offensiveIconFrame, OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY .. "Icon")
+            row.offensiveIconFrame:Hide()
+            row.offensiveIconFrame:ClearAllPoints()
+        end
         if row.frame then
             LibCustomGlow.PixelGlow_Stop(row.frame, OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY)
             row.frame:Hide()
@@ -2092,12 +2165,18 @@ local function LayoutPrescienceThinTrackerRows()
 
     prescienceThinTrackerFrame:SetSize(rowWidth, totalHeight)
     for index, row in ipairs(prescienceThinTrackerRowOrder) do
+        local iconSize = math.max(12, math.min(22, rowHeight + 2))
         row.frame:ClearAllPoints()
         row.frame:SetSize(rowWidth, rowHeight)
         row.track:SetAllPoints(row.frame)
         row.fill:SetHeight(rowHeight)
         row.nameText:ClearAllPoints()
         row.nameText:SetPoint("CENTER", row.frame, "CENTER", 0, 0)
+        if row.offensiveIconFrame then
+            row.offensiveIconFrame:ClearAllPoints()
+            row.offensiveIconFrame:SetSize(iconSize, iconSize)
+            row.offensiveIconFrame:SetPoint("LEFT", row.frame, "RIGHT", 4, 0)
+        end
         if index == 1 then
             row.frame:SetPoint("TOP", prescienceThinTrackerFrame, "TOP", 0, 0)
         else
@@ -2139,6 +2218,22 @@ local function CreatePrescienceThinTrackerRow(member)
             OFFENSIVE_MINOR_MARKER_COLOR[3], OFFENSIVE_MINOR_MARKER_COLOR[4])
         offensiveMinorMarker:Hide()
 
+        local offensiveIconFrame = CreateFrame("Frame", nil, frame, BackdropTemplateMixin and "BackdropTemplate")
+        offensiveIconFrame:SetBackdrop({
+            bgFile = [=[Interface\Tooltips\UI-Tooltip-Background]=],
+            edgeFile = [=[Interface\Tooltips\UI-Tooltip-Border]=],
+            edgeSize = 6,
+            insets = { top = 1, left = 1, bottom = 1, right = 1 }
+        })
+        offensiveIconFrame:SetBackdropColor(0.01, 0.01, 0.01, 0.78)
+        offensiveIconFrame:SetBackdropBorderColor(0, 0, 0, 0.85)
+        offensiveIconFrame:Hide()
+
+        local offensiveIcon = offensiveIconFrame:CreateTexture(nil, "ARTWORK")
+        offensiveIcon:SetAllPoints(offensiveIconFrame)
+        offensiveIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)
+        offensiveIcon:SetAlpha(0.98)
+
         local fill = frame:CreateTexture(nil, "ARTWORK")
         fill:SetTexture(addon.db.profile.backgroundTextTexture)
         fill:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
@@ -2157,6 +2252,8 @@ local function CreatePrescienceThinTrackerRow(member)
         }
         row.rangeMarker = rangeMarker
         row.offensiveMinorMarker = offensiveMinorMarker
+        row.offensiveIconFrame = offensiveIconFrame
+        row.offensiveIcon = offensiveIcon
         prescienceThinTrackerRows[member.identityKey] = row
     end
 
@@ -2172,7 +2269,7 @@ local function CreatePrescienceThinTrackerRow(member)
     return row
 end
 
-local function ApplyPrescienceThinTrackerOffensiveState(row, state)
+local function ApplyPrescienceThinTrackerOffensiveState(row, state, icon)
     if not row or not row.frame then
         return
     end
@@ -2180,18 +2277,41 @@ local function ApplyPrescienceThinTrackerOffensiveState(row, state)
     if state ~= OFFENSIVE_STATE_MINOR and state ~= OFFENSIVE_STATE_MAJOR and state ~= OFFENSIVE_STATE_BOTH then
         state = OFFENSIVE_STATE_NONE
     end
-    if row.offensiveState == state then
+    if not IsCleanAuraIcon(icon) then
+        icon = nil
+    end
+    icon = icon or nil
+    if row.offensiveState == state and row.offensiveIconTexture == icon then
         return
     end
 
     local hasMajor = state == OFFENSIVE_STATE_MAJOR or state == OFFENSIVE_STATE_BOTH
     local hasMinor = state == OFFENSIVE_STATE_MINOR or state == OFFENSIVE_STATE_BOTH
+    local hasIcon = state ~= OFFENSIVE_STATE_NONE and icon ~= nil
 
     if hasMajor then
         LibCustomGlow.PixelGlow_Start(row.frame, OFFENSIVE_MAJOR_GLOW_COLOR, 8, 0.35, 10, 3, 0, 0, true,
             OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY)
+        if row.offensiveIconFrame and hasIcon then
+            LibCustomGlow.PixelGlow_Start(row.offensiveIconFrame, OFFENSIVE_MAJOR_GLOW_COLOR, 8, 0.35, 10, 3, 0, 0,
+                true, OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY .. "Icon")
+        elseif row.offensiveIconFrame then
+            LibCustomGlow.PixelGlow_Stop(row.offensiveIconFrame, OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY .. "Icon")
+        end
     else
         LibCustomGlow.PixelGlow_Stop(row.frame, OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY)
+        if row.offensiveIconFrame then
+            LibCustomGlow.PixelGlow_Stop(row.offensiveIconFrame, OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY .. "Icon")
+        end
+    end
+
+    if row.offensiveIcon and row.offensiveIconFrame then
+        if hasIcon then
+            row.offensiveIcon:SetTexture(icon)
+            row.offensiveIconFrame:Show()
+        else
+            row.offensiveIconFrame:Hide()
+        end
     end
 
     if row.offensiveMinorMarker then
@@ -2203,6 +2323,7 @@ local function ApplyPrescienceThinTrackerOffensiveState(row, state)
     end
 
     row.offensiveState = state
+    row.offensiveIconTexture = icon
 end
 
 RefreshPrescienceThinTrackerOffensiveStateForUnit = function(unit)
@@ -2212,13 +2333,14 @@ RefreshPrescienceThinTrackerOffensiveStateForUnit = function(unit)
 
     for _, row in ipairs(prescienceThinTrackerRowOrder) do
         if not unit or row.unit == unit or (prescienceThinTrackerTestMode and row.isTestRow) then
-            local state = OFFENSIVE_STATE_NONE
+            local state, icon = OFFENSIVE_STATE_NONE, nil
             if prescienceThinTrackerTestMode and row.isTestRow then
                 state = row.testOffensiveState or OFFENSIVE_STATE_NONE
+                icon = row.testOffensiveIcon
             elseif row.unit then
-                state = GetOffensiveStateForUnit(row.unit)
+                state, icon = GetOffensiveStateForUnit(row.unit)
             end
-            ApplyPrescienceThinTrackerOffensiveState(row, state)
+            ApplyPrescienceThinTrackerOffensiveState(row, state, icon)
         end
     end
 end
@@ -2297,6 +2419,7 @@ local function RefreshPrescienceThinTrackerTestRows()
             row.isTestRow = true
             row.testRangeState = member.testRangeState
             row.testOffensiveState = member.testOffensiveState
+            row.testOffensiveIcon = member.testOffensiveIcon
             row.duration = PRESCIENCE_THIN_TRACKER_TEST_DURATION
             row.expirationTime = now + remaining
             table.insert(prescienceThinTrackerRowOrder, row)
@@ -2377,6 +2500,7 @@ RefreshPrescienceThinTrackerRoster = function()
                 row.isTestRow = nil
                 row.testRangeState = nil
                 row.testOffensiveState = nil
+                row.testOffensiveIcon = nil
                 seenRows[member.identityKey] = true
                 table.insert(prescienceThinTrackerRowOrder, row)
             end
@@ -2385,6 +2509,11 @@ RefreshPrescienceThinTrackerRoster = function()
 
     for identityKey, row in pairs(prescienceThinTrackerRows) do
         if not seenRows[identityKey] then
+            if row.offensiveIconFrame then
+                LibCustomGlow.PixelGlow_Stop(row.offensiveIconFrame, OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY .. "Icon")
+                row.offensiveIconFrame:Hide()
+                row.offensiveIconFrame:ClearAllPoints()
+            end
             if row.frame then
                 LibCustomGlow.PixelGlow_Stop(row.frame, OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY)
                 row.frame:Hide()
