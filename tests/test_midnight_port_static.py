@@ -596,6 +596,8 @@ def test_offensive_cast_windows_use_spellcast_events_not_cooldown_apis():
     assert "UnitIsUnit(unit" not in record_body
     assert "GetOffensiveBuffDefinitionForCastSpellID(spellID)" in record_body
     assert "UnitGUID(unit)" in record_body
+    assert "addon.DEFAULT_OFFENSIVE_MAJOR_CAST_WINDOW" in record_body
+    assert "addon.DEFAULT_OFFENSIVE_MINOR_CAST_WINDOW" in record_body
     assert "GetTime() + castWindow" in record_body
     assert "icon = addon.GetOffensiveBuffIcon(auraSpellID, definition)" in record_body
     assert "C_Timer.After(castWindow" in record_body
@@ -609,6 +611,32 @@ def test_offensive_cast_windows_use_spellcast_events_not_cooldown_apis():
     definition_body = function_body(CORE, "GetOffensiveBuffDefinitionForCastSpellID")
     assert "local auraSpellIDValue = GetCleanPositiveSpellID(auraSpellID)" in definition_body
     assert "castSpellID == spellID or auraSpellIDValue == spellID" in definition_body
+
+
+def test_prescience_thin_tracker_predicts_player_casts_when_combat_hides_party_auras():
+    assert 'RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")' in CORE
+    assert "RecordPendingPrescienceCastTarget(unit, info, spellID, maybeSpellID)" in CORE
+    assert "RecordPrescienceCastSucceeded(unit, info, spellID)" in CORE
+    assert "pendingPrescienceCastTargetsByCastGUID" in CORE
+    assert "addon.PRESCIENCE_PREDICTED_DURATION" in CORE
+
+    sent_body = function_body(CORE, "RecordPendingPrescienceCastTarget")
+    assert "GetCleanPositiveSpellID(spellID) ~= 409311" in sent_body
+    assert "FindGroupUnitBySpellcastTarget(targetName)" in sent_body
+    assert "addon.pendingPrescienceCastTargetsByCastGUID[castGUID] = targetUnit" in sent_body
+    assert "tostring" not in sent_body
+
+    success_body = function_body(CORE, "RecordPrescienceCastSucceeded")
+    assert "GetCleanPositiveSpellID(spellID) ~= 409311" in success_body
+    assert "addon.pendingPrescienceCastTargetsByCastGUID[castGUID]" in success_body
+    assert "addon.RecordPredictedPrescienceThinTrackerAuraState(targetUnit)" in success_body
+    assert "RefreshPrescienceThinTrackerAuras(targetUnit)" in success_body
+    assert "C_Timer.After(addon.PRESCIENCE_PREDICTED_DURATION" in success_body
+
+    predicted_body = function_body(CORE, "RecordPredictedPrescienceThinTrackerAuraState")
+    assert "expirationTime = GetTime() + addon.PRESCIENCE_PREDICTED_DURATION" in predicted_body
+    assert "duration = addon.PRESCIENCE_PREDICTED_DURATION" in predicted_body
+    assert "aura.name" not in predicted_body
 
 
 def test_unit_boolean_api_results_are_secret_safe():

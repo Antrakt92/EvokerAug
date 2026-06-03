@@ -48,8 +48,12 @@ local blizzardCompactFrameRefreshPending = false
 local instanceContextGeneration = 0
 local blizzardCompactFrameOverlays = {}
 local offensiveCastWindowsByGUID = {}
+addon.DEFAULT_OFFENSIVE_MAJOR_CAST_WINDOW = 20
+addon.DEFAULT_OFFENSIVE_MINOR_CAST_WINDOW = 8
+addon.PRESCIENCE_PREDICTED_DURATION = 18
 addon.offensiveAuraStatesByGUID = addon.offensiveAuraStatesByGUID or {}
 addon.prescienceThinTrackerAuraStatesByGUID = addon.prescienceThinTrackerAuraStatesByGUID or {}
+addon.pendingPrescienceCastTargetsByCastGUID = addon.pendingPrescienceCastTargetsByCastGUID or {}
 addon.pendingRoleInspectGUIDs = addon.pendingRoleInspectGUIDs or {}
 addon.roleInspectQueue = addon.roleInspectQueue or {}
 addon.roleInspectActiveGUID = nil
@@ -1283,6 +1287,50 @@ addon.GetUnitCombatRole = function(unit)
     return inspectRole
 end
 
+addon.UnitNameMatchesSpellcastTarget = function(unit, targetName)
+    if not unit or type(targetName) ~= "string" or issecretvalue(targetName) then
+        return false
+    end
+
+    local ok, matches = pcall(function()
+        local name = UnitName(unit)
+        if name == targetName then
+            return true
+        end
+
+        local identityKey = GetUnitIdentity(unit)
+        return identityKey == targetName
+    end)
+    return ok and matches == true
+end
+
+addon.FindGroupUnitBySpellcastTarget = function(targetName)
+    if type(targetName) ~= "string" or issecretvalue(targetName) then
+        return nil
+    end
+
+    local partyMembers = GetHomePartyInfos and GetHomePartyInfos() or {}
+    for _, member in ipairs(partyMembers) do
+        if member.unit and not addon.UnitIsUnitClean(member.unit, "player") and
+            addon.UnitNameMatchesSpellcastTarget(member.unit, targetName) then
+            return member.unit
+        end
+    end
+
+    return nil
+end
+
+addon.RecordPendingPrescienceCastTarget = function(unit, targetName, castGUID, spellID)
+    if unit ~= "player" or GetCleanPositiveSpellID(spellID) ~= 409311 or type(castGUID) ~= "string" then
+        return
+    end
+
+    local targetUnit = addon.FindGroupUnitBySpellcastTarget(targetName)
+    if targetUnit then
+        addon.pendingPrescienceCastTargetsByCastGUID[castGUID] = targetUnit
+    end
+end
+
 local function SanitizePosition(position)
     position = type(position) == "table" and position or {}
     local point = position.point
@@ -1807,7 +1855,8 @@ local function RecordOffensiveCastWindow(unit, spellID)
 
     local castWindow = definition.castWindow
     if not IsCleanPositiveNumber(castWindow) then
-        return
+        castWindow = tier == OFFENSIVE_TIER_MAJOR and addon.DEFAULT_OFFENSIVE_MAJOR_CAST_WINDOW or
+            addon.DEFAULT_OFFENSIVE_MINOR_CAST_WINDOW
     end
 
     local guid = UnitGUID(unit)
@@ -2559,6 +2608,42 @@ addon.RecordPrescienceThinTrackerAuraState = function(unit, aura)
         expirationTime = aura.expirationTime,
         duration = aura.duration,
     }
+end
+
+addon.RecordPredictedPrescienceThinTrackerAuraState = function(unit)
+    if not unit or not addon.UnitExistsClean(unit) then
+        return
+    end
+
+    local guid = UnitGUID(unit)
+    if not guid then
+        return
+    end
+
+    addon.prescienceThinTrackerAuraStatesByGUID[guid] = {
+        expirationTime = GetTime() + addon.PRESCIENCE_PREDICTED_DURATION,
+        duration = addon.PRESCIENCE_PREDICTED_DURATION,
+    }
+end
+
+addon.RecordPrescienceCastSucceeded = function(unit, castGUID, spellID)
+    if unit ~= "player" or GetCleanPositiveSpellID(spellID) ~= 409311 or type(castGUID) ~= "string" then
+        return
+    end
+
+    local targetUnit = addon.pendingPrescienceCastTargetsByCastGUID[castGUID]
+    addon.pendingPrescienceCastTargetsByCastGUID[castGUID] = nil
+    if not targetUnit or not addon.UnitExistsClean(targetUnit) then
+        return
+    end
+
+    addon.RecordPredictedPrescienceThinTrackerAuraState(targetUnit)
+    RefreshPrescienceThinTrackerAuras(targetUnit)
+    if C_Timer and C_Timer.After then
+        C_Timer.After(addon.PRESCIENCE_PREDICTED_DURATION, function()
+            RefreshPrescienceThinTrackerAuras(targetUnit)
+        end)
+    end
 end
 
 addon.RemovePrescienceThinTrackerAuraStateByInstanceID = function(unit, auraInstanceID)
@@ -4340,6 +4425,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
     selectedPlayerFrameContainer:RegisterEvent("UNIT_AURA")
     selectedPlayerFrameContainer:RegisterEvent("UNIT_CONNECTION")
     selectedPlayerFrameContainer:RegisterEvent("UNIT_FLAGS")
+    selectedPlayerFrameContainer:RegisterUnitEvent("UNIT_SPELLCAST_SENT", "player")
     selectedPlayerFrameContainer:RegisterEvent("UNIT_SPELLCAST_SUCCEEDED")
     selectedPlayerFrameContainer:RegisterEvent("INSPECT_READY")
     selectedPlayerFrameContainer:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
@@ -4380,7 +4466,7 @@ function addon:OnEnable() -- PLAYER_LOGIN
         end
     end)
 
-    selectedPlayerFrameContainer:SetScript("OnEvent", function(self, event, unit, info, spellID)
+    selectedPlayerFrameContainer:SetScript("OnEvent", function(self, event, unit, info, spellID, maybeSpellID)
         if event == "GROUP_ROSTER_UPDATE" then
             local _, instanceType = IsInInstance()
             RefreshRuntimeFrames()
@@ -4527,8 +4613,11 @@ function addon:OnEnable() -- PLAYER_LOGIN
             end
             RefreshBlizzardCompactFrameHighlightsForUnit(unit)
             RefreshPrescienceThinTrackerAuras(unit)
+        elseif event == "UNIT_SPELLCAST_SENT" then
+            addon.RecordPendingPrescienceCastTarget(unit, info, spellID, maybeSpellID)
         elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
             RecordOffensiveCastWindow(unit, spellID)
+            addon.RecordPrescienceCastSucceeded(unit, info, spellID)
         elseif event == "UNIT_FLAGS" then
             if unit ~= "player" then
                 local isDeadOrGhost = addon.UnitIsDeadOrGhostClean(unit)
