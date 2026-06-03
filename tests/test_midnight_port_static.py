@@ -781,6 +781,45 @@ def test_prescience_thin_tracker_rows_show_range_state():
     assert "ApplyPrescienceThinTrackerRangeState(row)" in update_body
 
 
+def test_prescience_thin_tracker_reuses_offensive_burst_state_for_glow():
+    assert "OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY" in CORE
+    assert "ApplyPrescienceThinTrackerOffensiveState" in CORE
+    assert "RefreshPrescienceThinTrackerOffensiveStateForUnit" in CORE
+
+    create_body = function_body(CORE, "CreatePrescienceThinTrackerRow")
+    assert "local offensiveMinorMarker = frame:CreateTexture(nil, \"OVERLAY\")" in create_body
+    assert "row.offensiveMinorMarker = offensiveMinorMarker" in create_body
+
+    apply_body = function_body(CORE, "ApplyPrescienceThinTrackerOffensiveState")
+    assert "LibCustomGlow.PixelGlow_Start(row.frame, OFFENSIVE_MAJOR_GLOW_COLOR" in apply_body
+    assert "OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY" in apply_body
+    assert "LibCustomGlow.PixelGlow_Stop(row.frame, OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY)" in apply_body
+    assert "row.offensiveMinorMarker:Show()" in apply_body
+    assert "row.offensiveMinorMarker:Hide()" in apply_body
+    assert "row.offensiveState = state" in apply_body
+
+    refresh_body = function_body(CORE, "RefreshPrescienceThinTrackerOffensiveStateForUnit")
+    assert "prescienceThinTrackerTestMode and row.isTestRow" in refresh_body
+    assert "row.testOffensiveState" in refresh_body
+    assert "GetOffensiveStateForUnit(row.unit)" in refresh_body
+    assert "ApplyPrescienceThinTrackerOffensiveState(row, state)" in refresh_body
+
+    surfaces_body = function_body(CORE, "RefreshOffensiveHighlightSurfacesForUnit")
+    assert "RefreshPrescienceThinTrackerOffensiveStateForUnit(unit)" in surfaces_body
+
+    enabled_body = function_body(CORE, "SetOffensiveBuffEnabled")
+    assert "RefreshPrescienceThinTrackerOffensiveStateForUnit()" in enabled_body
+
+    options_body = function_body(CORE, "GetOptions")
+    assert "RefreshPrescienceThinTrackerOffensiveStateForUnit()" in options_body
+
+    aura_body = function_body(CORE, "RefreshPrescienceThinTrackerAuras")
+    assert "RefreshPrescienceThinTrackerOffensiveStateForUnit(unit)" in aura_body
+
+    update_body = function_body(CORE, "UpdatePrescienceThinTrackerRows")
+    assert "GetOffensiveStateForUnit" not in update_body
+
+
 def test_prescience_thin_tracker_wires_into_existing_events_without_replacing_old_frames():
     on_enable_body = function_body(CORE, "addon:OnEnable")
     assert "CreatePrescienceThinTrackerFrame()" in on_enable_body
@@ -820,6 +859,8 @@ def test_prescience_thin_tracker_test_mode_builds_preview_rows_without_aura_read
     assert 'name = "Test Rogue"' in CORE
     assert 'testRangeState = "inRange"' in CORE
     assert 'testRangeState = "outOfRange"' in CORE
+    assert 'testOffensiveState = OFFENSIVE_STATE_MAJOR' in CORE
+    assert 'testOffensiveState = OFFENSIVE_STATE_MINOR' in CORE
     assert 'name = "Test Hunter"' not in CORE
 
     test_body = function_body(CORE, "RefreshPrescienceThinTrackerTestRows")
@@ -829,6 +870,7 @@ def test_prescience_thin_tracker_test_mode_builds_preview_rows_without_aura_read
     assert "GetTime()" in test_body
     assert "row.isTestRow = true" in test_body
     assert "row.testRangeState = member.testRangeState" in test_body
+    assert "row.testOffensiveState = member.testOffensiveState" in test_body
     assert "row.duration = PRESCIENCE_THIN_TRACKER_TEST_DURATION" in test_body
     assert "row.expirationTime = now + remaining" in test_body
     assert "FindTrackedAuraBySpellID" not in test_body

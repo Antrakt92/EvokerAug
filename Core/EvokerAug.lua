@@ -31,6 +31,7 @@ local OFFENSIVE_STATE_MINOR = "minor"
 local OFFENSIVE_STATE_MAJOR = "major"
 local OFFENSIVE_STATE_BOTH = "both"
 local OFFENSIVE_MAJOR_GLOW_KEY = "EvokerAugOffensiveMajor"
+local OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY = "EvokerAugThinTrackerOffensiveMajor"
 local OFFENSIVE_MAJOR_GLOW_COLOR = { 1, 0.76, 0.18, 1 }
 local OFFENSIVE_MINOR_MARKER_COLOR = { 0.2, 0.95, 1, 0.9 }
 local BLIZZARD_COMPACT_MAJOR_GLOW_KEY = "EvokerAugBlizzardCompactMajor"
@@ -54,8 +55,8 @@ local prescienceThinTrackerUpdateElapsed = 0
 local prescienceThinTrackerTestMode = false
 local PRESCIENCE_THIN_TRACKER_TEST_DURATION = 18
 local PRESCIENCE_THIN_TRACKER_TEST_MEMBERS = {
-    { identityKey = "test-thin-tracker-mage", name = "Test Mage", class = "MAGE", unit = "player", remaining = 17, testRangeState = "inRange" },
-    { identityKey = "test-thin-tracker-rogue", name = "Test Rogue", class = "ROGUE", unit = "player", remaining = 10, testRangeState = "outOfRange" },
+    { identityKey = "test-thin-tracker-mage", name = "Test Mage", class = "MAGE", unit = "player", remaining = 17, testRangeState = "inRange", testOffensiveState = OFFENSIVE_STATE_MAJOR },
+    { identityKey = "test-thin-tracker-rogue", name = "Test Rogue", class = "ROGUE", unit = "player", remaining = 10, testRangeState = "outOfRange", testOffensiveState = OFFENSIVE_STATE_MINOR },
 }
 local CheckShoworHide
 local HideAllSubFrames
@@ -77,6 +78,7 @@ local RefreshPrescienceThinTrackerRoster
 local RefreshPrescienceThinTrackerAuras
 local UpdatePrescienceThinTrackerRows
 local UpdatePrescienceThinTrackerVisibility
+local RefreshPrescienceThinTrackerOffensiveStateForUnit
 local VALID_FRAME_POINTS = {
     TOPLEFT = true,
     TOP = true,
@@ -435,6 +437,9 @@ local function SetOffensiveBuffEnabled(spellID, enabled, isCustom)
     if RefreshBlizzardCompactFrameHighlightsForAllUnits then
         RefreshBlizzardCompactFrameHighlightsForAllUnits()
     end
+    if RefreshPrescienceThinTrackerOffensiveStateForUnit then
+        RefreshPrescienceThinTrackerOffensiveStateForUnit()
+    end
 end
 
 local function SetOffensiveBuffTier(spellID, tier)
@@ -455,6 +460,9 @@ local function SetOffensiveBuffTier(spellID, tier)
     end
     if RefreshBlizzardCompactFrameHighlightsForAllUnits then
         RefreshBlizzardCompactFrameHighlightsForAllUnits()
+    end
+    if RefreshPrescienceThinTrackerOffensiveStateForUnit then
+        RefreshPrescienceThinTrackerOffensiveStateForUnit()
     end
 end
 
@@ -478,6 +486,9 @@ local function SetCustomOffensiveBuff(spellID, spellName, tier)
     end
     if RefreshBlizzardCompactFrameHighlightsForAllUnits then
         RefreshBlizzardCompactFrameHighlightsForAllUnits()
+    end
+    if RefreshPrescienceThinTrackerOffensiveStateForUnit then
+        RefreshPrescienceThinTrackerOffensiveStateForUnit()
     end
 end
 -- Map Icon ---
@@ -1385,6 +1396,9 @@ local function RefreshOffensiveHighlightSurfacesForUnit(unit)
     elseif RefreshBlizzardCompactFrameHighlightsForAllUnits then
         RefreshBlizzardCompactFrameHighlightsForAllUnits()
     end
+    if RefreshPrescienceThinTrackerOffensiveStateForUnit then
+        RefreshPrescienceThinTrackerOffensiveStateForUnit(unit)
+    end
 end
 
 local function GetOffensiveBuffDefinitionForCastSpellID(spellID)
@@ -1832,6 +1846,7 @@ end
 local function ClearPrescienceThinTrackerRows()
     for _, row in pairs(prescienceThinTrackerRows) do
         if row.frame then
+            LibCustomGlow.PixelGlow_Stop(row.frame, OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY)
             row.frame:Hide()
             row.frame:ClearAllPoints()
             row.frame:SetParent(nil)
@@ -1897,6 +1912,14 @@ local function CreatePrescienceThinTrackerRow(member)
             PRESCIENCE_THIN_TRACKER_RANGE_COLORS.unknown[2], PRESCIENCE_THIN_TRACKER_RANGE_COLORS.unknown[3],
             PRESCIENCE_THIN_TRACKER_RANGE_COLORS.unknown[4])
 
+        local offensiveMinorMarker = frame:CreateTexture(nil, "OVERLAY")
+        offensiveMinorMarker:SetPoint("TOPRIGHT", frame, "TOPRIGHT", 0, 0)
+        offensiveMinorMarker:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+        offensiveMinorMarker:SetWidth(4)
+        offensiveMinorMarker:SetColorTexture(OFFENSIVE_MINOR_MARKER_COLOR[1], OFFENSIVE_MINOR_MARKER_COLOR[2],
+            OFFENSIVE_MINOR_MARKER_COLOR[3], OFFENSIVE_MINOR_MARKER_COLOR[4])
+        offensiveMinorMarker:Hide()
+
         local fill = frame:CreateTexture(nil, "ARTWORK")
         fill:SetTexture(addon.db.profile.backgroundTextTexture)
         fill:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
@@ -1914,6 +1937,7 @@ local function CreatePrescienceThinTrackerRow(member)
             nameText = nameText,
         }
         row.rangeMarker = rangeMarker
+        row.offensiveMinorMarker = offensiveMinorMarker
         prescienceThinTrackerRows[member.identityKey] = row
     end
 
@@ -1927,6 +1951,57 @@ local function CreatePrescienceThinTrackerRow(member)
     row.nameText:SetTextColor(1, 1, 1, 0.95)
     row.frame:Show()
     return row
+end
+
+local function ApplyPrescienceThinTrackerOffensiveState(row, state)
+    if not row or not row.frame then
+        return
+    end
+
+    if state ~= OFFENSIVE_STATE_MINOR and state ~= OFFENSIVE_STATE_MAJOR and state ~= OFFENSIVE_STATE_BOTH then
+        state = OFFENSIVE_STATE_NONE
+    end
+    if row.offensiveState == state then
+        return
+    end
+
+    local hasMajor = state == OFFENSIVE_STATE_MAJOR or state == OFFENSIVE_STATE_BOTH
+    local hasMinor = state == OFFENSIVE_STATE_MINOR or state == OFFENSIVE_STATE_BOTH
+
+    if hasMajor then
+        LibCustomGlow.PixelGlow_Start(row.frame, OFFENSIVE_MAJOR_GLOW_COLOR, 8, 0.35, 10, 3, 0, 0, true,
+            OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY)
+    else
+        LibCustomGlow.PixelGlow_Stop(row.frame, OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY)
+    end
+
+    if row.offensiveMinorMarker then
+        if hasMinor then
+            row.offensiveMinorMarker:Show()
+        else
+            row.offensiveMinorMarker:Hide()
+        end
+    end
+
+    row.offensiveState = state
+end
+
+RefreshPrescienceThinTrackerOffensiveStateForUnit = function(unit)
+    if not prescienceThinTrackerFrame then
+        return
+    end
+
+    for _, row in ipairs(prescienceThinTrackerRowOrder) do
+        if not unit or row.unit == unit or (prescienceThinTrackerTestMode and row.isTestRow) then
+            local state = OFFENSIVE_STATE_NONE
+            if prescienceThinTrackerTestMode and row.isTestRow then
+                state = row.testOffensiveState or OFFENSIVE_STATE_NONE
+            elseif row.unit then
+                state = GetOffensiveStateForUnit(row.unit)
+            end
+            ApplyPrescienceThinTrackerOffensiveState(row, state)
+        end
+    end
 end
 
 local function ApplyPrescienceThinTrackerRangeState(row)
@@ -2002,6 +2077,7 @@ local function RefreshPrescienceThinTrackerTestRows()
             local remaining = member.remaining or PRESCIENCE_THIN_TRACKER_TEST_DURATION
             row.isTestRow = true
             row.testRangeState = member.testRangeState
+            row.testOffensiveState = member.testOffensiveState
             row.duration = PRESCIENCE_THIN_TRACKER_TEST_DURATION
             row.expirationTime = now + remaining
             table.insert(prescienceThinTrackerRowOrder, row)
@@ -2009,6 +2085,7 @@ local function RefreshPrescienceThinTrackerTestRows()
     end
 
     LayoutPrescienceThinTrackerRows()
+    RefreshPrescienceThinTrackerOffensiveStateForUnit()
     UpdatePrescienceThinTrackerRows()
 end
 
@@ -2034,6 +2111,7 @@ RefreshPrescienceThinTrackerAuras = function(unit)
             end
         end
     end
+    RefreshPrescienceThinTrackerOffensiveStateForUnit(unit)
     UpdatePrescienceThinTrackerRows()
 end
 
@@ -2079,6 +2157,7 @@ RefreshPrescienceThinTrackerRoster = function()
             if row then
                 row.isTestRow = nil
                 row.testRangeState = nil
+                row.testOffensiveState = nil
                 seenRows[member.identityKey] = true
                 table.insert(prescienceThinTrackerRowOrder, row)
             end
@@ -2088,6 +2167,7 @@ RefreshPrescienceThinTrackerRoster = function()
     for identityKey, row in pairs(prescienceThinTrackerRows) do
         if not seenRows[identityKey] then
             if row.frame then
+                LibCustomGlow.PixelGlow_Stop(row.frame, OFFENSIVE_THIN_TRACKER_MAJOR_GLOW_KEY)
                 row.frame:Hide()
                 row.frame:ClearAllPoints()
                 row.frame:SetParent(nil)
@@ -3496,6 +3576,7 @@ local function GetOptions()
                             addon.db.profile.offensiveBuffs.enabled = value
                             RefreshOffensiveBuffHighlightsForAllSelectedUnits()
                             RefreshBlizzardCompactFrameHighlightsForAllUnits()
+                            RefreshPrescienceThinTrackerOffensiveStateForUnit()
                         end,
                     },
                     blizzardFrames = {
