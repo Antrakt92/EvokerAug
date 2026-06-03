@@ -41,11 +41,13 @@ addon.AllSpellList = {
 addon.OffensiveBuffList = {
     [51271] = { name = "Pillar of Frost", class = "DEATHKNIGHT", tier = "major" },
     [47568] = { name = "Empower Rune Weapon", class = "DEATHKNIGHT", tier = "major" },
-    [63560] = { name = "Dark Transformation", class = "DEATHKNIGHT", tier = "major" },
-    [207289] = { name = "Unholy Assault", class = "DEATHKNIGHT", tier = "major" },
-    [49206] = { name = "Summon Gargoyle", class = "DEATHKNIGHT", tier = "major" },
-    [42650] = { name = "Army of the Dead", class = "DEATHKNIGHT", tier = "major" },
+    [63560] = { name = "Dark Transformation", class = "DEATHKNIGHT", tier = "major", castWindow = 15 },
+    [207289] = { name = "Unholy Assault", class = "DEATHKNIGHT", tier = "major", castWindow = 20 },
+    [49206] = { name = "Summon Gargoyle", class = "DEATHKNIGHT", tier = "major", castWindow = 25 },
+    [42650] = { name = "Army of the Dead", class = "DEATHKNIGHT", tier = "major", castWindow = 30 },
     [1249658] = { name = "Breath of Sindragosa", class = "DEATHKNIGHT", tier = "major" },
+    [439843] = { name = "Reaper's Mark", class = "DEATHKNIGHT", tier = "major", castWindow = 12 },
+    [275699] = { name = "Apocalypse", class = "DEATHKNIGHT", tier = "minor", castWindow = 6 },
 
     [162264] = { name = "Metamorphosis", class = "DEMONHUNTER", tier = "major" },
     [1217607] = { name = "Void Metamorphosis", class = "DEMONHUNTER", tier = "major" },

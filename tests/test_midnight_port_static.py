@@ -454,6 +454,22 @@ def test_offensive_buff_defaults_cover_major_visible_burst_windows():
     assert "addon.OffensiveBuffList = {" in SPELL_LIST
     assert "OFFENSIVE_TIER_MAJOR" in CORE
     assert "OFFENSIVE_TIER_MINOR" in CORE
+    supported_classes = set(re.findall(r'class = "([A-Z]+)"', SPELL_LIST))
+    assert supported_classes == {
+        "DEATHKNIGHT",
+        "DEMONHUNTER",
+        "DRUID",
+        "EVOKER",
+        "HUNTER",
+        "MAGE",
+        "MONK",
+        "PALADIN",
+        "PRIEST",
+        "ROGUE",
+        "SHAMAN",
+        "WARLOCK",
+        "WARRIOR",
+    }
 
     for spell_id, name in {
         51271: "Pillar of Frost",
@@ -502,6 +518,23 @@ def test_rogue_offensive_defaults_cover_cast_based_burst_windows():
     assert 'castWindow = 14' in rogue_section
     assert 'castWindow = 12' in rogue_section
     assert 'castSpellID = 185313' in rogue_section
+
+
+def test_death_knight_offensive_defaults_cover_cast_based_burst_windows():
+    for spell_id, name in {
+        439843: "Reaper's Mark",
+        275699: "Apocalypse",
+    }.items():
+        assert f"[{spell_id}] = " in SPELL_LIST
+        assert f'name = "{name}"' in SPELL_LIST
+
+    death_knight_section = SPELL_LIST[
+        SPELL_LIST.index('[51271] = { name = "Pillar of Frost"') :
+        SPELL_LIST.index('[162264] = { name = "Metamorphosis"')
+    ]
+    assert 'class = "DEATHKNIGHT"' in death_knight_section
+    assert 'castWindow = 12' in death_knight_section
+    assert 'castWindow = 6' in death_knight_section
 
 
 def test_offensive_cast_windows_use_spellcast_events_not_cooldown_apis():
