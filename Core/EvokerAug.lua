@@ -1672,8 +1672,9 @@ local function GetOffensiveBuffDefinitionForCastSpellID(spellID)
 
     for auraSpellID, definition in pairs(addon.OffensiveBuffList or {}) do
         if type(definition) == "table" then
-            local castSpellID = GetCleanPositiveSpellID(definition.castSpellID) or GetCleanPositiveSpellID(auraSpellID)
-            if castSpellID == spellID and IsOffensiveBuffEnabled(auraSpellID) then
+            local auraSpellIDValue = GetCleanPositiveSpellID(auraSpellID)
+            local castSpellID = GetCleanPositiveSpellID(definition.castSpellID)
+            if (castSpellID == spellID or auraSpellIDValue == spellID) and IsOffensiveBuffEnabled(auraSpellID) then
                 local tier = NormalizeOffensiveTier(definition.tier) or OFFENSIVE_TIER_MINOR
                 return auraSpellID, definition, tier
             end

@@ -480,7 +480,7 @@ def test_offensive_buff_defaults_cover_major_visible_burst_windows():
         19574: "Bestial Wrath",
         190319: "Combustion",
         365362: "Arcane Surge",
-        137639: "Storm, Earth, and Fire",
+        1249625: "Zenith",
         31884: "Avenging Wrath",
         10060: "Power Infusion",
         13750: "Adrenaline Rush",
@@ -497,6 +497,49 @@ def test_offensive_buff_defaults_cover_major_visible_burst_windows():
     assert "1480" not in SPELL_LIST
 
 
+def test_midnight_dps_specs_have_curated_main_burst_defaults():
+    expected_by_spec = {
+        "Frost Death Knight": {51271, 1249658},
+        "Unholy Death Knight": {63560, 207289},
+        "Havoc Demon Hunter": {162264},
+        "Devourer Demon Hunter": {1217607},
+        "Balance Druid": {194223, 102560},
+        "Feral Druid": {106951, 102543},
+        "Devastation Evoker": {375087},
+        "Augmentation Evoker": {403631},
+        "Beast Mastery Hunter": {19574, 359844},
+        "Marksmanship Hunter": {288613},
+        "Survival Hunter": {1253860},
+        "Arcane Mage": {365362},
+        "Fire Mage": {190319},
+        "Frost Mage": {208141},
+        "Windwalker Monk": {1249625, 443028, 123904},
+        "Retribution Paladin": {31884},
+        "Shadow Priest": {10060, 228260, 391109},
+        "Assassination Rogue": {360194, 385627},
+        "Outlaw Rogue": {13750, 51690},
+        "Subtlety Rogue": {185422, 212283, 121471},
+        "Elemental Shaman": {1219480, 114051, 191634},
+        "Enhancement Shaman": {384352, 444995, 1219480, 114051},
+        "Affliction Warlock": {205180, 442726},
+        "Demonology Warlock": {265273},
+        "Destruction Warlock": {1122, 442726},
+        "Arms Warrior": {107574, 227847},
+        "Fury Warrior": {1719, 107574},
+    }
+
+    for spec_name, spell_ids in expected_by_spec.items():
+        for spell_id in spell_ids:
+            assert f"[{spell_id}] = " in SPELL_LIST, f"{spec_name} missing {spell_id}"
+
+    death_knight_section = SPELL_LIST[
+        SPELL_LIST.index('[51271] = { name = "Pillar of Frost"') :
+        SPELL_LIST.index('[162264] = { name = "Metamorphosis"')
+    ]
+    for noisy_spell_id in {47568, 49206, 42650, 439843, 275699}:
+        assert f"[{noisy_spell_id}] = " not in death_knight_section
+
+
 def test_rogue_offensive_defaults_cover_cast_based_burst_windows():
     for spell_id, name in {
         360194: "Deathmark",
@@ -504,7 +547,6 @@ def test_rogue_offensive_defaults_cover_cast_based_burst_windows():
         384631: "Flagellation",
         51690: "Killing Spree",
         280719: "Secret Technique",
-        382245: "Cold Blood",
         426591: "Goremaw's Bite",
     }.items():
         assert f"[{spell_id}] = " in SPELL_LIST
@@ -522,8 +564,10 @@ def test_rogue_offensive_defaults_cover_cast_based_burst_windows():
 
 def test_death_knight_offensive_defaults_cover_cast_based_burst_windows():
     for spell_id, name in {
-        439843: "Reaper's Mark",
-        275699: "Apocalypse",
+        51271: "Pillar of Frost",
+        1249658: "Breath of Sindragosa",
+        63560: "Dark Transformation",
+        207289: "Unholy Assault",
     }.items():
         assert f"[{spell_id}] = " in SPELL_LIST
         assert f'name = "{name}"' in SPELL_LIST
@@ -533,8 +577,8 @@ def test_death_knight_offensive_defaults_cover_cast_based_burst_windows():
         SPELL_LIST.index('[162264] = { name = "Metamorphosis"')
     ]
     assert 'class = "DEATHKNIGHT"' in death_knight_section
-    assert 'castWindow = 12' in death_knight_section
-    assert 'castWindow = 6' in death_knight_section
+    assert 'name = "Dark Transformation", class = "DEATHKNIGHT", tier = "major", castWindow = 15' in death_knight_section
+    assert 'name = "Unholy Assault", class = "DEATHKNIGHT", tier = "major", castWindow = 20' in death_knight_section
 
 
 def test_offensive_cast_windows_use_spellcast_events_not_cooldown_apis():
@@ -561,6 +605,10 @@ def test_offensive_cast_windows_use_spellcast_events_not_cooldown_apis():
     assert "addon.UnitExistsClean(unit)" in window_body
     assert "UnitExists(unit)" not in window_body
     assert "window.icon" in window_body
+
+    definition_body = function_body(CORE, "GetOffensiveBuffDefinitionForCastSpellID")
+    assert "local auraSpellIDValue = GetCleanPositiveSpellID(auraSpellID)" in definition_body
+    assert "castSpellID == spellID or auraSpellIDValue == spellID" in definition_body
 
 
 def test_unit_boolean_api_results_are_secret_safe():
