@@ -730,10 +730,38 @@ def test_unit_aura_reconciles_offensive_highlights_without_name_scans():
 
     unit_aura_body = CORE[CORE.index('elseif event == "UNIT_AURA"') :]
     unit_aura_body = unit_aura_body[: unit_aura_body.index('elseif event == "UNIT_FLAGS"')]
-    assert "RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)" in unit_aura_body
+    assert "RefreshOffensiveBuffHighlight(selectedPlayerFrame, unit)" in unit_aura_body
     assert "GetAuraDataBySpellName" not in unit_aura_body
     assert "string.find" not in unit_aura_body
     assert "string.match" not in unit_aura_body
+
+
+def test_unit_aura_payload_records_offensive_state_for_party_combat():
+    assert "offensiveAuraStatesByGUID" in CORE
+    assert "RecordOffensiveAuraState(unit, v)" in CORE
+    assert "RecordOffensiveAuraState(unit, aura)" in CORE
+    assert "RemoveOffensiveAuraStateByInstanceID(unit, instance)" in CORE
+
+    unit_aura_body = CORE[CORE.index('elseif event == "UNIT_AURA"') :]
+    unit_aura_body = unit_aura_body[: unit_aura_body.index('elseif event == "UNIT_SPELLCAST_SUCCEEDED"')]
+    assert "local selectedPlayerFrame = selectedPlayerFrames[frameIndex]" in unit_aura_body
+    assert "if info.addedAuras and #info.addedAuras > 0 then" in unit_aura_body
+    assert "if info.updatedAuraInstanceIDs and #info.updatedAuraInstanceIDs > 0 then" in unit_aura_body
+    assert "if info.removedAuraInstanceIDs and #info.removedAuraInstanceIDs > 0 then" in unit_aura_body
+
+    record_body = function_body(CORE, "RecordOffensiveAuraState")
+    assert "IsUsableAuraData(aura)" in record_body
+    assert "GetOffensiveBuffDefinition(spellID)" in record_body
+    assert "IsOffensiveBuffEnabled(spellID)" in record_body
+    assert "auraInstanceID = aura.auraInstanceID" in record_body
+    assert "expires = aura.expirationTime" in record_body
+    assert "icon = addon.GetOffensiveBuffIcon(spellID, definition, aura)" in record_body
+    assert "aura.name" not in record_body
+    assert "string." not in record_body
+
+    state_body = function_body(CORE, "GetOffensiveStateForUnit")
+    assert "GetObservedOffensiveAuraStateForUnit(unit)" in state_body
+    assert "observedAuraIcon" in state_body
 
 
 def test_offensive_buff_options_have_global_toggle_and_tier_controls():
@@ -860,15 +888,37 @@ def test_prescience_thin_tracker_tracks_dps_prescience_only():
     assert "CreatePrescienceThinTrackerRow(member)" in roster_body
 
     aura_body = function_body(CORE, "RefreshPrescienceThinTrackerAuras")
-    assert "FindTrackedAuraBySpellID(row.unit, 410089)" in aura_body
-    assert "FindTrackedAuraBySpellID(row.unit, 395152)" not in aura_body
-    assert "FindTrackedAuraBySpellID(row.unit, 395296)" not in aura_body
+    assert "FindAuraBySpellID(row.unit, 410089)" in aura_body
+    assert "GetObservedPrescienceThinTrackerAuraForUnit(row.unit)" in aura_body
+    assert "FindTrackedAuraBySpellID(row.unit, 410089)" not in aura_body
+    assert "FindAuraBySpellID(row.unit, 395152)" not in aura_body
+    assert "FindAuraBySpellID(row.unit, 395296)" not in aura_body
     assert "GetOffensiveStateForUnit" not in aura_body
 
     update_body = function_body(CORE, "UpdatePrescienceThinTrackerRows")
     assert "row.fill:SetWidth(width)" in update_body
     assert "remaining / duration" in update_body
     assert "row.fill:Hide()" in update_body
+
+
+def test_prescience_thin_tracker_uses_unit_aura_payload_cache_for_party_combat():
+    assert "prescienceThinTrackerAuraStatesByGUID" in CORE
+    assert "RecordPrescienceThinTrackerAuraState(unit, v)" in CORE
+    assert "RecordPrescienceThinTrackerAuraState(unit, aura)" in CORE
+    assert "RemovePrescienceThinTrackerAuraStateByInstanceID(unit, instance)" in CORE
+
+    record_body = function_body(CORE, "RecordPrescienceThinTrackerAuraState")
+    assert "GetCleanPositiveSpellID(aura.spellId) ~= 410089" in record_body
+    assert "IsUsableAuraData(aura)" in record_body
+    assert "auraInstanceID = aura.auraInstanceID" in record_body
+    assert "expirationTime = aura.expirationTime" in record_body
+    assert "duration = aura.duration" in record_body
+    assert "aura.name" not in record_body
+    assert "string." not in record_body
+
+    observed_body = function_body(CORE, "GetObservedPrescienceThinTrackerAuraForUnit")
+    assert "state.expirationTime > GetTime()" in observed_body
+    assert "prescienceThinTrackerAuraStatesByGUID[guid] = nil" in observed_body
 
 
 def test_prescience_thin_tracker_rows_show_range_state():
@@ -974,7 +1024,7 @@ def test_prescience_thin_tracker_wires_into_existing_events_without_replacing_ol
     aura_event_body = CORE[CORE.index('elseif event == "UNIT_AURA"') :]
     aura_event_body = aura_event_body[: aura_event_body.index('elseif event == "UNIT_SPELLCAST_SUCCEEDED"')]
     assert "RefreshPrescienceThinTrackerAuras(unit)" in aura_event_body
-    assert "RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)" in aura_event_body
+    assert "RefreshOffensiveBuffHighlight(selectedPlayerFrame, unit)" in aura_event_body
 
 
 def test_prescience_thin_tracker_retries_party_roster_without_autofill_gate():

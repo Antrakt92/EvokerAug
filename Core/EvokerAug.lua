@@ -48,6 +48,8 @@ local blizzardCompactFrameRefreshPending = false
 local instanceContextGeneration = 0
 local blizzardCompactFrameOverlays = {}
 local offensiveCastWindowsByGUID = {}
+addon.offensiveAuraStatesByGUID = addon.offensiveAuraStatesByGUID or {}
+addon.prescienceThinTrackerAuraStatesByGUID = addon.prescienceThinTrackerAuraStatesByGUID or {}
 addon.pendingRoleInspectGUIDs = addon.pendingRoleInspectGUIDs or {}
 addon.roleInspectQueue = addon.roleInspectQueue or {}
 addon.roleInspectActiveGUID = nil
@@ -1570,6 +1572,101 @@ local function GetOffensiveCastWindowStateForUnit(unit)
     return OFFENSIVE_STATE_NONE, nil
 end
 
+addon.RecordOffensiveAuraState = function(unit, aura)
+    if not unit or not addon.UnitExistsClean(unit) or not IsUsableAuraData(aura) then
+        return
+    end
+
+    local spellID = GetCleanPositiveSpellID(aura.spellId)
+    local definition, tier = GetOffensiveBuffDefinition(spellID)
+    if not definition or not IsOffensiveBuffEnabled(spellID) then
+        return
+    end
+
+    local guid = UnitGUID(unit)
+    if not guid then
+        return
+    end
+
+    addon.offensiveAuraStatesByGUID[guid] = addon.offensiveAuraStatesByGUID[guid] or {}
+    addon.offensiveAuraStatesByGUID[guid][spellID] = {
+        tier = tier,
+        auraInstanceID = aura.auraInstanceID,
+        expires = aura.expirationTime,
+        icon = addon.GetOffensiveBuffIcon(spellID, definition, aura),
+    }
+end
+
+addon.RemoveOffensiveAuraStateByInstanceID = function(unit, auraInstanceID)
+    if not unit or not addon.UnitExistsClean(unit) or not IsCleanPositiveNumber(auraInstanceID) then
+        return
+    end
+
+    local guid = UnitGUID(unit)
+    local states = guid and addon.offensiveAuraStatesByGUID[guid]
+    if not states then
+        return
+    end
+
+    for spellID, state in pairs(states) do
+        if type(state) == "table" and state.auraInstanceID == auraInstanceID then
+            states[spellID] = nil
+        end
+    end
+end
+
+addon.GetObservedOffensiveAuraStateForUnit = function(unit)
+    if not unit or not addon.UnitExistsClean(unit) then
+        return OFFENSIVE_STATE_NONE, nil
+    end
+
+    local guid = UnitGUID(unit)
+    local states = guid and addon.offensiveAuraStatesByGUID[guid]
+    if not states then
+        return OFFENSIVE_STATE_NONE, nil
+    end
+
+    local now = GetTime()
+    local hasMajor = false
+    local hasMinor = false
+    local hasAnyAura = false
+    local majorIcon
+    local minorIcon
+
+    for spellID, state in pairs(states) do
+        if type(state) == "table" and IsCleanNumber(state.expires) and state.expires > now and
+            IsOffensiveBuffEnabled(spellID) then
+            hasAnyAura = true
+            if state.tier == OFFENSIVE_TIER_MAJOR then
+                hasMajor = true
+                majorIcon = majorIcon or state.icon or addon.GetOffensiveBuffIcon(spellID,
+                    addon.OffensiveBuffList and addon.OffensiveBuffList[spellID])
+            elseif state.tier == OFFENSIVE_TIER_MINOR then
+                hasMinor = true
+                minorIcon = minorIcon or state.icon or addon.GetOffensiveBuffIcon(spellID,
+                    addon.OffensiveBuffList and addon.OffensiveBuffList[spellID])
+            end
+        else
+            states[spellID] = nil
+        end
+    end
+
+    if not hasAnyAura then
+        addon.offensiveAuraStatesByGUID[guid] = nil
+        return OFFENSIVE_STATE_NONE, nil
+    end
+    if hasMajor and hasMinor then
+        return OFFENSIVE_STATE_BOTH, majorIcon or minorIcon
+    end
+    if hasMajor then
+        return OFFENSIVE_STATE_MAJOR, majorIcon
+    end
+    if hasMinor then
+        return OFFENSIVE_STATE_MINOR, minorIcon
+    end
+    return OFFENSIVE_STATE_NONE, nil
+end
+
 local function GetOffensiveStateForUnit(unit)
     if not unit or not addon.db or not addon.db.profile then
         return OFFENSIVE_STATE_NONE, nil
@@ -1615,6 +1712,20 @@ local function GetOffensiveStateForUnit(unit)
                 minorIcon = minorIcon or icon
             end
         end
+    end
+
+    local observedAuraState, observedAuraIcon = addon.GetObservedOffensiveAuraStateForUnit(unit)
+    if observedAuraState == OFFENSIVE_STATE_BOTH then
+        hasMajor = true
+        hasMinor = true
+        majorIcon = majorIcon or observedAuraIcon
+        minorIcon = minorIcon or observedAuraIcon
+    elseif observedAuraState == OFFENSIVE_STATE_MAJOR then
+        hasMajor = true
+        majorIcon = majorIcon or observedAuraIcon
+    elseif observedAuraState == OFFENSIVE_STATE_MINOR then
+        hasMinor = true
+        minorIcon = minorIcon or observedAuraIcon
     end
 
     local castWindowState, castWindowIcon = GetOffensiveCastWindowStateForUnit(unit)
@@ -2432,6 +2543,56 @@ local function RefreshPrescienceThinTrackerTestRows()
     UpdatePrescienceThinTrackerRows()
 end
 
+addon.RecordPrescienceThinTrackerAuraState = function(unit, aura)
+    if not unit or not addon.UnitExistsClean(unit) or not IsUsableAuraData(aura) or
+        GetCleanPositiveSpellID(aura.spellId) ~= 410089 then
+        return
+    end
+
+    local guid = UnitGUID(unit)
+    if not guid then
+        return
+    end
+
+    addon.prescienceThinTrackerAuraStatesByGUID[guid] = {
+        auraInstanceID = aura.auraInstanceID,
+        expirationTime = aura.expirationTime,
+        duration = aura.duration,
+    }
+end
+
+addon.RemovePrescienceThinTrackerAuraStateByInstanceID = function(unit, auraInstanceID)
+    if not unit or not addon.UnitExistsClean(unit) or not IsCleanPositiveNumber(auraInstanceID) then
+        return
+    end
+
+    local guid = UnitGUID(unit)
+    local state = guid and addon.prescienceThinTrackerAuraStatesByGUID[guid]
+    if type(state) == "table" and state.auraInstanceID == auraInstanceID then
+        addon.prescienceThinTrackerAuraStatesByGUID[guid] = nil
+    end
+end
+
+addon.GetObservedPrescienceThinTrackerAuraForUnit = function(unit)
+    if not unit or not addon.UnitExistsClean(unit) then
+        return nil
+    end
+
+    local guid = UnitGUID(unit)
+    local state = guid and addon.prescienceThinTrackerAuraStatesByGUID[guid]
+    if type(state) ~= "table" then
+        return nil
+    end
+
+    if IsCleanPositiveNumber(state.expirationTime) and IsCleanPositiveNumber(state.duration) and
+        state.expirationTime > GetTime() then
+        return state
+    end
+
+    addon.prescienceThinTrackerAuraStatesByGUID[guid] = nil
+    return nil
+end
+
 RefreshPrescienceThinTrackerAuras = function(unit)
     if prescienceThinTrackerTestMode then
         UpdatePrescienceThinTrackerRows()
@@ -2444,7 +2605,7 @@ RefreshPrescienceThinTrackerAuras = function(unit)
 
     for _, row in ipairs(prescienceThinTrackerRowOrder) do
         if not unit or row.unit == unit then
-            local aura = FindTrackedAuraBySpellID(row.unit, 410089)
+            local aura = FindAuraBySpellID(row.unit, 410089) or addon.GetObservedPrescienceThinTrackerAuraForUnit(row.unit)
             if aura and IsCleanPositiveNumber(aura.expirationTime) and IsCleanPositiveNumber(aura.duration) then
                 row.expirationTime = aura.expirationTime
                 row.duration = aura.duration
@@ -4330,30 +4491,39 @@ function addon:OnEnable() -- PLAYER_LOGIN
                 return
             end
             local frameIndex = GetPlayerFrameIndexByUnit(unit)
-            if info.addedAuras and #info.addedAuras > 0 and selectedPlayerFrames[frameIndex] then
+            local selectedPlayerFrame = selectedPlayerFrames[frameIndex]
+            if info.addedAuras and #info.addedAuras > 0 then
                 for _, v in ipairs(info.addedAuras) do
-                    if IsTrackedAuraData(v) then
-                        AddBuffIcon(selectedPlayerFrames[frameIndex], v.auraInstanceID, v.expirationTime, v.icon,
+                    addon.RecordPrescienceThinTrackerAuraState(unit, v)
+                    addon.RecordOffensiveAuraState(unit, v)
+                    if selectedPlayerFrame and IsTrackedAuraData(v) then
+                        AddBuffIcon(selectedPlayerFrame, v.auraInstanceID, v.expirationTime, v.icon,
                             v.duration, v.spellId)
                     end
                 end
             end
-            if info.updatedAuraInstanceIDs and #info.updatedAuraInstanceIDs > 0 and selectedPlayerFrames[frameIndex] then
+            if info.updatedAuraInstanceIDs and #info.updatedAuraInstanceIDs > 0 then
                 for _, v in ipairs(info.updatedAuraInstanceIDs) do
                     local aura = C_UnitAuras.GetAuraDataByAuraInstanceID(unit, v)
-                    if IsTrackedAuraData(aura) then
-                        AddBuffIcon(selectedPlayerFrames[frameIndex], aura.auraInstanceID, aura.expirationTime,
+                    addon.RecordPrescienceThinTrackerAuraState(unit, aura)
+                    addon.RecordOffensiveAuraState(unit, aura)
+                    if selectedPlayerFrame and IsTrackedAuraData(aura) then
+                        AddBuffIcon(selectedPlayerFrame, aura.auraInstanceID, aura.expirationTime,
                             aura.icon, aura.duration, aura.spellId)
                     end
                 end
             end
-            if info.removedAuraInstanceIDs and #info.removedAuraInstanceIDs > 0 and selectedPlayerFrames[frameIndex] then
+            if info.removedAuraInstanceIDs and #info.removedAuraInstanceIDs > 0 then
                 for _, instance in ipairs(info.removedAuraInstanceIDs) do
-                    RemoveBuffIcon(selectedPlayerFrames[frameIndex], instance)
+                    addon.RemovePrescienceThinTrackerAuraStateByInstanceID(unit, instance)
+                    addon.RemoveOffensiveAuraStateByInstanceID(unit, instance)
+                    if selectedPlayerFrame then
+                        RemoveBuffIcon(selectedPlayerFrame, instance)
+                    end
                 end
             end
-            if selectedPlayerFrames[frameIndex] then
-                RefreshOffensiveBuffHighlight(selectedPlayerFrames[frameIndex], unit)
+            if selectedPlayerFrame then
+                RefreshOffensiveBuffHighlight(selectedPlayerFrame, unit)
             end
             RefreshBlizzardCompactFrameHighlightsForUnit(unit)
             RefreshPrescienceThinTrackerAuras(unit)
