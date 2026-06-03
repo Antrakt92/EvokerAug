@@ -758,6 +758,29 @@ def test_prescience_thin_tracker_tracks_dps_prescience_only():
     assert "row.fill:Hide()" in update_body
 
 
+def test_prescience_thin_tracker_rows_show_range_state():
+    assert "PRESCIENCE_THIN_TRACKER_RANGE_COLORS" in CORE
+    assert "PRESCIENCE_THIN_TRACKER_RANGE_MARKER_WIDTH = 4" in CORE
+    assert "ApplyPrescienceThinTrackerRangeState" in CORE
+
+    create_body = function_body(CORE, "CreatePrescienceThinTrackerRow")
+    assert "local rangeMarker = frame:CreateTexture(nil, \"OVERLAY\")" in create_body
+    assert "rangeMarker:SetWidth(PRESCIENCE_THIN_TRACKER_RANGE_MARKER_WIDTH)" in create_body
+    assert "row.rangeMarker = rangeMarker" in create_body
+
+    range_body = function_body(CORE, "ApplyPrescienceThinTrackerRangeState")
+    assert "prescienceThinTrackerTestMode and row.isTestRow" in range_body
+    assert "UnitExists(row.unit)" in range_body
+    assert "UnitInRange(row.unit)" in range_body
+    assert 'rangeState = "outOfRange"' in range_body
+    assert 'rangeState = "inRange"' in range_body
+    assert "row.rangeMarker:SetColorTexture" in range_body
+    assert "row.frame:SetAlpha" in range_body
+
+    update_body = function_body(CORE, "UpdatePrescienceThinTrackerRows")
+    assert "ApplyPrescienceThinTrackerRangeState(row)" in update_body
+
+
 def test_prescience_thin_tracker_wires_into_existing_events_without_replacing_old_frames():
     on_enable_body = function_body(CORE, "addon:OnEnable")
     assert "CreatePrescienceThinTrackerFrame()" in on_enable_body
@@ -795,6 +818,8 @@ def test_prescience_thin_tracker_test_mode_builds_preview_rows_without_aura_read
     assert CORE.count('identityKey = "test-thin-tracker-') == 2
     assert 'name = "Test Mage"' in CORE
     assert 'name = "Test Rogue"' in CORE
+    assert 'testRangeState = "inRange"' in CORE
+    assert 'testRangeState = "outOfRange"' in CORE
     assert 'name = "Test Hunter"' not in CORE
 
     test_body = function_body(CORE, "RefreshPrescienceThinTrackerTestRows")
@@ -803,6 +828,7 @@ def test_prescience_thin_tracker_test_mode_builds_preview_rows_without_aura_read
     assert "CreatePrescienceThinTrackerRow(member)" in test_body
     assert "GetTime()" in test_body
     assert "row.isTestRow = true" in test_body
+    assert "row.testRangeState = member.testRangeState" in test_body
     assert "row.duration = PRESCIENCE_THIN_TRACKER_TEST_DURATION" in test_body
     assert "row.expirationTime = now + remaining" in test_body
     assert "FindTrackedAuraBySpellID" not in test_body

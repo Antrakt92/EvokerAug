@@ -35,6 +35,12 @@ local OFFENSIVE_MAJOR_GLOW_COLOR = { 1, 0.76, 0.18, 1 }
 local OFFENSIVE_MINOR_MARKER_COLOR = { 0.2, 0.95, 1, 0.9 }
 local BLIZZARD_COMPACT_MAJOR_GLOW_KEY = "EvokerAugBlizzardCompactMajor"
 local BLIZZARD_COMPACT_MINOR_MARKER_WIDTH = 4
+local PRESCIENCE_THIN_TRACKER_RANGE_MARKER_WIDTH = 4
+local PRESCIENCE_THIN_TRACKER_RANGE_COLORS = {
+    inRange = { 0.18, 1, 0.32, 0.95 },
+    outOfRange = { 1, 0.16, 0.12, 0.95 },
+    unknown = { 0.72, 0.72, 0.72, 0.82 },
+}
 local pendingProtectedFrameRefresh = false
 local pendingActiveProfileApply = false
 local blizzardCompactFrameRefreshPending = false
@@ -48,8 +54,8 @@ local prescienceThinTrackerUpdateElapsed = 0
 local prescienceThinTrackerTestMode = false
 local PRESCIENCE_THIN_TRACKER_TEST_DURATION = 18
 local PRESCIENCE_THIN_TRACKER_TEST_MEMBERS = {
-    { identityKey = "test-thin-tracker-mage", name = "Test Mage", class = "MAGE", unit = "player", remaining = 17 },
-    { identityKey = "test-thin-tracker-rogue", name = "Test Rogue", class = "ROGUE", unit = "player", remaining = 10 },
+    { identityKey = "test-thin-tracker-mage", name = "Test Mage", class = "MAGE", unit = "player", remaining = 17, testRangeState = "inRange" },
+    { identityKey = "test-thin-tracker-rogue", name = "Test Rogue", class = "ROGUE", unit = "player", remaining = 10, testRangeState = "outOfRange" },
 }
 local CheckShoworHide
 local HideAllSubFrames
@@ -1883,6 +1889,14 @@ local function CreatePrescienceThinTrackerRow(member)
         local track = frame:CreateTexture(nil, "BACKGROUND")
         track:SetColorTexture(0.02, 0.02, 0.02, 0.82)
 
+        local rangeMarker = frame:CreateTexture(nil, "OVERLAY")
+        rangeMarker:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
+        rangeMarker:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 0, 0)
+        rangeMarker:SetWidth(PRESCIENCE_THIN_TRACKER_RANGE_MARKER_WIDTH)
+        rangeMarker:SetColorTexture(PRESCIENCE_THIN_TRACKER_RANGE_COLORS.unknown[1],
+            PRESCIENCE_THIN_TRACKER_RANGE_COLORS.unknown[2], PRESCIENCE_THIN_TRACKER_RANGE_COLORS.unknown[3],
+            PRESCIENCE_THIN_TRACKER_RANGE_COLORS.unknown[4])
+
         local fill = frame:CreateTexture(nil, "ARTWORK")
         fill:SetTexture(addon.db.profile.backgroundTextTexture)
         fill:SetPoint("TOPLEFT", frame, "TOPLEFT", 0, 0)
@@ -1899,6 +1913,7 @@ local function CreatePrescienceThinTrackerRow(member)
             fill = fill,
             nameText = nameText,
         }
+        row.rangeMarker = rangeMarker
         prescienceThinTrackerRows[member.identityKey] = row
     end
 
@@ -1914,6 +1929,30 @@ local function CreatePrescienceThinTrackerRow(member)
     return row
 end
 
+local function ApplyPrescienceThinTrackerRangeState(row)
+    if not row or not row.rangeMarker then
+        return
+    end
+
+    local rangeState = "unknown"
+    if prescienceThinTrackerTestMode and row.isTestRow then
+        rangeState = row.testRangeState or "unknown"
+    elseif row.unit and UnitExists(row.unit) then
+        local inRange = UnitInRange(row.unit)
+        if inRange then
+            rangeState = "inRange"
+        elseif inRange == false then
+            rangeState = "outOfRange"
+        end
+    end
+
+    local color = PRESCIENCE_THIN_TRACKER_RANGE_COLORS[rangeState] or PRESCIENCE_THIN_TRACKER_RANGE_COLORS.unknown
+    row.rangeMarker:SetColorTexture(color[1], color[2], color[3], color[4])
+    if row.frame then
+        row.frame:SetAlpha(rangeState == "outOfRange" and 0.55 or 1)
+    end
+end
+
 UpdatePrescienceThinTrackerRows = function()
     if not prescienceThinTrackerFrame or not addon.db or not addon.db.profile then
         return
@@ -1922,6 +1961,8 @@ UpdatePrescienceThinTrackerRows = function()
     local settings = addon.db.profile.prescienceThinTracker
     local now = GetTime()
     for _, row in ipairs(prescienceThinTrackerRowOrder) do
+        ApplyPrescienceThinTrackerRangeState(row)
+
         local width = 0
         local expirationTime = row.expirationTime
         local duration = row.duration
@@ -1960,6 +2001,7 @@ local function RefreshPrescienceThinTrackerTestRows()
         if row then
             local remaining = member.remaining or PRESCIENCE_THIN_TRACKER_TEST_DURATION
             row.isTestRow = true
+            row.testRangeState = member.testRangeState
             row.duration = PRESCIENCE_THIN_TRACKER_TEST_DURATION
             row.expirationTime = now + remaining
             table.insert(prescienceThinTrackerRowOrder, row)
@@ -2036,6 +2078,7 @@ RefreshPrescienceThinTrackerRoster = function()
             local row = CreatePrescienceThinTrackerRow(member)
             if row then
                 row.isTestRow = nil
+                row.testRangeState = nil
                 seenRows[member.identityKey] = true
                 table.insert(prescienceThinTrackerRowOrder, row)
             end
