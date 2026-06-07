@@ -230,6 +230,32 @@ addon.UnitExistsClean = function(unit)
     return addon.GetCleanBooleanResult(UnitExists, unit) == true
 end
 
+addon.GetCleanUnitGUID = function(unit)
+    if not unit or not UnitGUID then
+        return nil
+    end
+
+    local ok, guid = pcall(UnitGUID, unit)
+    if not ok then
+        return nil
+    end
+
+    local okSecret, secret = pcall(issecretvalue, guid)
+    if not okSecret or secret == true then
+        return nil
+    end
+
+    if guid == nil then
+        return nil
+    end
+
+    if type(guid) ~= "string" or guid == "" then
+        return nil
+    end
+
+    return guid
+end
+
 addon.UnitIsConnectedClean = function(unit)
     return addon.GetCleanBooleanResult(UnitIsConnected, unit) == true
 end
@@ -1257,7 +1283,7 @@ addon.RequestInspectRoleForUnit = function(unit)
     end
 
     -- WHY: manually formed M+ parties can report role NONE until inspect spec data is cached.
-    local guid = UnitGUID and UnitGUID(unit)
+    local guid = addon.GetCleanUnitGUID(unit)
     if not guid or addon.pendingRoleInspectGUIDs[guid] then
         return
     end
@@ -1573,7 +1599,7 @@ local function GetOffensiveCastWindowStateForUnit(unit)
         return OFFENSIVE_STATE_NONE, nil
     end
 
-    local guid = UnitGUID(unit)
+    local guid = addon.GetCleanUnitGUID(unit)
     local windows = guid and offensiveCastWindowsByGUID[guid]
     if not windows then
         return OFFENSIVE_STATE_NONE, nil
@@ -1631,7 +1657,7 @@ addon.RecordOffensiveAuraState = function(unit, aura)
         return
     end
 
-    local guid = UnitGUID(unit)
+    local guid = addon.GetCleanUnitGUID(unit)
     if not guid then
         return
     end
@@ -1650,7 +1676,7 @@ addon.RemoveOffensiveAuraStateByInstanceID = function(unit, auraInstanceID)
         return
     end
 
-    local guid = UnitGUID(unit)
+    local guid = addon.GetCleanUnitGUID(unit)
     local states = guid and addon.offensiveAuraStatesByGUID[guid]
     if not states then
         return
@@ -1668,7 +1694,7 @@ addon.GetObservedOffensiveAuraStateForUnit = function(unit)
         return OFFENSIVE_STATE_NONE, nil
     end
 
-    local guid = UnitGUID(unit)
+    local guid = addon.GetCleanUnitGUID(unit)
     local states = guid and addon.offensiveAuraStatesByGUID[guid]
     if not states then
         return OFFENSIVE_STATE_NONE, nil
@@ -1859,7 +1885,7 @@ local function RecordOffensiveCastWindow(unit, spellID)
             addon.DEFAULT_OFFENSIVE_MINOR_CAST_WINDOW
     end
 
-    local guid = UnitGUID(unit)
+    local guid = addon.GetCleanUnitGUID(unit)
     if not guid then
         return
     end
@@ -2598,7 +2624,7 @@ addon.RecordPrescienceThinTrackerAuraState = function(unit, aura)
         return
     end
 
-    local guid = UnitGUID(unit)
+    local guid = addon.GetCleanUnitGUID(unit)
     if not guid then
         return
     end
@@ -2615,7 +2641,7 @@ addon.RecordPredictedPrescienceThinTrackerAuraState = function(unit)
         return
     end
 
-    local guid = UnitGUID(unit)
+    local guid = addon.GetCleanUnitGUID(unit)
     if not guid then
         return
     end
@@ -2651,7 +2677,7 @@ addon.RemovePrescienceThinTrackerAuraStateByInstanceID = function(unit, auraInst
         return
     end
 
-    local guid = UnitGUID(unit)
+    local guid = addon.GetCleanUnitGUID(unit)
     local state = guid and addon.prescienceThinTrackerAuraStatesByGUID[guid]
     if type(state) == "table" and state.auraInstanceID == auraInstanceID then
         addon.prescienceThinTrackerAuraStatesByGUID[guid] = nil
@@ -2663,7 +2689,7 @@ addon.GetObservedPrescienceThinTrackerAuraForUnit = function(unit)
         return nil
     end
 
-    local guid = UnitGUID(unit)
+    local guid = addon.GetCleanUnitGUID(unit)
     local state = guid and addon.prescienceThinTrackerAuraStatesByGUID[guid]
     if type(state) ~= "table" then
         return nil

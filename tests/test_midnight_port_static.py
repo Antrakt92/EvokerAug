@@ -595,7 +595,7 @@ def test_offensive_cast_windows_use_spellcast_events_not_cooldown_apis():
     assert "UnitExists(unit)" not in record_body
     assert "UnitIsUnit(unit" not in record_body
     assert "GetOffensiveBuffDefinitionForCastSpellID(spellID)" in record_body
-    assert "UnitGUID(unit)" in record_body
+    assert "addon.GetCleanUnitGUID(unit)" in record_body
     assert "addon.DEFAULT_OFFENSIVE_MAJOR_CAST_WINDOW" in record_body
     assert "addon.DEFAULT_OFFENSIVE_MINOR_CAST_WINDOW" in record_body
     assert "GetTime() + castWindow" in record_body
@@ -657,6 +657,32 @@ def test_unit_boolean_api_results_are_secret_safe():
     result_body = function_body(CORE, "GetCleanBooleanResult")
     assert "pcall(fn, ...)" in result_body
     assert "addon.GetCleanBooleanValue(value)" in result_body
+
+
+def test_unit_guid_table_keys_are_secret_safe():
+    assert "GetCleanUnitGUID" in CORE
+
+    guid_body = function_body(CORE, "GetCleanUnitGUID")
+    assert "pcall(UnitGUID, unit)" in guid_body
+    assert "not ok or not guid" not in guid_body
+    assert "pcall(issecretvalue, guid)" in guid_body
+    assert 'type(guid) ~= "string"' in guid_body
+
+    for name in [
+        "RequestInspectRoleForUnit",
+        "RecordOffensiveCastWindow",
+        "GetOffensiveCastWindowStateForUnit",
+        "RecordOffensiveAuraState",
+        "RemoveOffensiveAuraStateByInstanceID",
+        "GetObservedOffensiveAuraStateForUnit",
+        "RecordPrescienceThinTrackerAuraState",
+        "RecordPredictedPrescienceThinTrackerAuraState",
+        "RemovePrescienceThinTrackerAuraStateByInstanceID",
+        "GetObservedPrescienceThinTrackerAuraForUnit",
+    ]:
+        body = function_body(CORE, name)
+        assert "GetCleanUnitGUID(unit)" in body, name
+        assert not re.search(r"(?<!Clean)UnitGUID\(unit\)", body), name
 
 
 def test_offensive_buff_profile_state_is_separate_from_tracked_buff_icons():
