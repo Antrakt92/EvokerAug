@@ -595,7 +595,7 @@ def test_offensive_cast_windows_use_spellcast_events_not_cooldown_apis():
     assert "UnitExists(unit)" not in record_body
     assert "UnitIsUnit(unit" not in record_body
     assert "GetOffensiveBuffDefinitionForCastSpellID(spellID)" in record_body
-    assert "addon.GetCleanUnitGUID(unit)" in record_body
+    assert "addon.GetUnitStateKey(unit)" in record_body
     assert "addon.DEFAULT_OFFENSIVE_MAJOR_CAST_WINDOW" in record_body
     assert "addon.DEFAULT_OFFENSIVE_MINOR_CAST_WINDOW" in record_body
     assert "GetTime() + castWindow" in record_body
@@ -668,8 +668,24 @@ def test_unit_guid_table_keys_are_secret_safe():
     assert "pcall(issecretvalue, guid)" in guid_body
     assert 'type(guid) ~= "string"' in guid_body
 
+    role_inspect_body = function_body(CORE, "RequestInspectRoleForUnit")
+    assert "GetCleanUnitGUID(unit)" in role_inspect_body
+    assert not re.search(r"(?<!Clean)UnitGUID\(unit\)", role_inspect_body)
+
+
+def test_combat_state_tables_use_cached_identity_when_unit_guid_is_secret():
+    assert "unitStateKeysByUnit" in CORE
+
+    cache_body = function_body(CORE, "CacheUnitStateKey")
+    assert '"identity:" .. identityKey' in cache_body
+    assert "addon.unitStateKeysByUnit[unit] = stateKey" in cache_body
+
+    state_key_body = function_body(CORE, "GetUnitStateKey")
+    assert "addon.unitStateKeysByUnit[unit]" in state_key_body
+    assert '"guid:" .. guid' in state_key_body
+    assert "addon.GetCleanUnitGUID(unit)" in state_key_body
+
     for name in [
-        "RequestInspectRoleForUnit",
         "RecordOffensiveCastWindow",
         "GetOffensiveCastWindowStateForUnit",
         "RecordOffensiveAuraState",
@@ -681,8 +697,12 @@ def test_unit_guid_table_keys_are_secret_safe():
         "GetObservedPrescienceThinTrackerAuraForUnit",
     ]:
         body = function_body(CORE, name)
-        assert "GetCleanUnitGUID(unit)" in body, name
+        assert "GetUnitStateKey(unit)" in body, name
+        assert "GetCleanUnitGUID(unit)" not in body, name
         assert not re.search(r"(?<!Clean)UnitGUID\(unit\)", body), name
+
+    for name in ["AddHomePartyInfo", "CreateSelectedPlayerFrame", "CreatePrescienceThinTrackerRow"]:
+        assert "CacheUnitStateKey(" in function_body(CORE, name), name
 
 
 def test_offensive_buff_profile_state_is_separate_from_tracked_buff_icons():
@@ -972,7 +992,7 @@ def test_prescience_thin_tracker_uses_unit_aura_payload_cache_for_party_combat()
 
     observed_body = function_body(CORE, "GetObservedPrescienceThinTrackerAuraForUnit")
     assert "state.expirationTime > GetTime()" in observed_body
-    assert "prescienceThinTrackerAuraStatesByGUID[guid] = nil" in observed_body
+    assert "prescienceThinTrackerAuraStatesByGUID[stateKey] = nil" in observed_body
 
 
 def test_prescience_thin_tracker_rows_show_range_state():

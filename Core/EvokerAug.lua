@@ -51,6 +51,7 @@ local offensiveCastWindowsByGUID = {}
 addon.DEFAULT_OFFENSIVE_MAJOR_CAST_WINDOW = 20
 addon.DEFAULT_OFFENSIVE_MINOR_CAST_WINDOW = 8
 addon.PRESCIENCE_PREDICTED_DURATION = 18
+addon.unitStateKeysByUnit = addon.unitStateKeysByUnit or {}
 addon.offensiveAuraStatesByGUID = addon.offensiveAuraStatesByGUID or {}
 addon.prescienceThinTrackerAuraStatesByGUID = addon.prescienceThinTrackerAuraStatesByGUID or {}
 addon.pendingPrescienceCastTargetsByCastGUID = addon.pendingPrescienceCastTargetsByCastGUID or {}
@@ -254,6 +255,34 @@ addon.GetCleanUnitGUID = function(unit)
     end
 
     return guid
+end
+
+addon.CacheUnitStateKey = function(unit, identityKey)
+    if type(unit) ~= "string" or unit == "" or type(identityKey) ~= "string" or identityKey == "" then
+        return nil
+    end
+
+    local stateKey = "identity:" .. identityKey
+    addon.unitStateKeysByUnit[unit] = stateKey
+    return stateKey
+end
+
+addon.GetUnitStateKey = function(unit)
+    if type(unit) ~= "string" or unit == "" then
+        return nil
+    end
+
+    local stateKey = addon.unitStateKeysByUnit[unit]
+    if type(stateKey) == "string" and stateKey ~= "" then
+        return stateKey
+    end
+
+    local guid = addon.GetCleanUnitGUID(unit)
+    if guid then
+        return "guid:" .. guid
+    end
+
+    return nil
 end
 
 addon.UnitIsConnectedClean = function(unit)
@@ -1599,8 +1628,8 @@ local function GetOffensiveCastWindowStateForUnit(unit)
         return OFFENSIVE_STATE_NONE, nil
     end
 
-    local guid = addon.GetCleanUnitGUID(unit)
-    local windows = guid and offensiveCastWindowsByGUID[guid]
+    local stateKey = addon.GetUnitStateKey(unit)
+    local windows = stateKey and offensiveCastWindowsByGUID[stateKey]
     if not windows then
         return OFFENSIVE_STATE_NONE, nil
     end
@@ -1631,7 +1660,7 @@ local function GetOffensiveCastWindowStateForUnit(unit)
     end
 
     if not hasAnyWindow then
-        offensiveCastWindowsByGUID[guid] = nil
+        offensiveCastWindowsByGUID[stateKey] = nil
         return OFFENSIVE_STATE_NONE, nil
     end
     if hasMajor and hasMinor then
@@ -1657,13 +1686,13 @@ addon.RecordOffensiveAuraState = function(unit, aura)
         return
     end
 
-    local guid = addon.GetCleanUnitGUID(unit)
-    if not guid then
+    local stateKey = addon.GetUnitStateKey(unit)
+    if not stateKey then
         return
     end
 
-    addon.offensiveAuraStatesByGUID[guid] = addon.offensiveAuraStatesByGUID[guid] or {}
-    addon.offensiveAuraStatesByGUID[guid][spellID] = {
+    addon.offensiveAuraStatesByGUID[stateKey] = addon.offensiveAuraStatesByGUID[stateKey] or {}
+    addon.offensiveAuraStatesByGUID[stateKey][spellID] = {
         tier = tier,
         auraInstanceID = aura.auraInstanceID,
         expires = aura.expirationTime,
@@ -1676,8 +1705,8 @@ addon.RemoveOffensiveAuraStateByInstanceID = function(unit, auraInstanceID)
         return
     end
 
-    local guid = addon.GetCleanUnitGUID(unit)
-    local states = guid and addon.offensiveAuraStatesByGUID[guid]
+    local stateKey = addon.GetUnitStateKey(unit)
+    local states = stateKey and addon.offensiveAuraStatesByGUID[stateKey]
     if not states then
         return
     end
@@ -1694,8 +1723,8 @@ addon.GetObservedOffensiveAuraStateForUnit = function(unit)
         return OFFENSIVE_STATE_NONE, nil
     end
 
-    local guid = addon.GetCleanUnitGUID(unit)
-    local states = guid and addon.offensiveAuraStatesByGUID[guid]
+    local stateKey = addon.GetUnitStateKey(unit)
+    local states = stateKey and addon.offensiveAuraStatesByGUID[stateKey]
     if not states then
         return OFFENSIVE_STATE_NONE, nil
     end
@@ -1726,7 +1755,7 @@ addon.GetObservedOffensiveAuraStateForUnit = function(unit)
     end
 
     if not hasAnyAura then
-        addon.offensiveAuraStatesByGUID[guid] = nil
+        addon.offensiveAuraStatesByGUID[stateKey] = nil
         return OFFENSIVE_STATE_NONE, nil
     end
     if hasMajor and hasMinor then
@@ -1885,13 +1914,13 @@ local function RecordOffensiveCastWindow(unit, spellID)
             addon.DEFAULT_OFFENSIVE_MINOR_CAST_WINDOW
     end
 
-    local guid = addon.GetCleanUnitGUID(unit)
-    if not guid then
+    local stateKey = addon.GetUnitStateKey(unit)
+    if not stateKey then
         return
     end
 
-    offensiveCastWindowsByGUID[guid] = offensiveCastWindowsByGUID[guid] or {}
-    offensiveCastWindowsByGUID[guid][auraSpellID] = {
+    offensiveCastWindowsByGUID[stateKey] = offensiveCastWindowsByGUID[stateKey] or {}
+    offensiveCastWindowsByGUID[stateKey][auraSpellID] = {
         tier = tier,
         expires = GetTime() + castWindow,
         icon = addon.GetOffensiveBuffIcon(auraSpellID, definition),
@@ -2449,6 +2478,7 @@ local function CreatePrescienceThinTrackerRow(member)
     row.unit = member.unit
     row.name = member.name
     row.class = member.class
+    addon.CacheUnitStateKey(member.unit, member.identityKey)
     row.fill:SetVertexColor(classR, classG, classB, 0.95)
     row.nameText:SetText(member.name or "")
     row.nameText:SetTextColor(1, 1, 1, 0.95)
@@ -2624,12 +2654,12 @@ addon.RecordPrescienceThinTrackerAuraState = function(unit, aura)
         return
     end
 
-    local guid = addon.GetCleanUnitGUID(unit)
-    if not guid then
+    local stateKey = addon.GetUnitStateKey(unit)
+    if not stateKey then
         return
     end
 
-    addon.prescienceThinTrackerAuraStatesByGUID[guid] = {
+    addon.prescienceThinTrackerAuraStatesByGUID[stateKey] = {
         auraInstanceID = aura.auraInstanceID,
         expirationTime = aura.expirationTime,
         duration = aura.duration,
@@ -2641,12 +2671,12 @@ addon.RecordPredictedPrescienceThinTrackerAuraState = function(unit)
         return
     end
 
-    local guid = addon.GetCleanUnitGUID(unit)
-    if not guid then
+    local stateKey = addon.GetUnitStateKey(unit)
+    if not stateKey then
         return
     end
 
-    addon.prescienceThinTrackerAuraStatesByGUID[guid] = {
+    addon.prescienceThinTrackerAuraStatesByGUID[stateKey] = {
         expirationTime = GetTime() + addon.PRESCIENCE_PREDICTED_DURATION,
         duration = addon.PRESCIENCE_PREDICTED_DURATION,
     }
@@ -2677,10 +2707,10 @@ addon.RemovePrescienceThinTrackerAuraStateByInstanceID = function(unit, auraInst
         return
     end
 
-    local guid = addon.GetCleanUnitGUID(unit)
-    local state = guid and addon.prescienceThinTrackerAuraStatesByGUID[guid]
+    local stateKey = addon.GetUnitStateKey(unit)
+    local state = stateKey and addon.prescienceThinTrackerAuraStatesByGUID[stateKey]
     if type(state) == "table" and state.auraInstanceID == auraInstanceID then
-        addon.prescienceThinTrackerAuraStatesByGUID[guid] = nil
+        addon.prescienceThinTrackerAuraStatesByGUID[stateKey] = nil
     end
 end
 
@@ -2689,8 +2719,8 @@ addon.GetObservedPrescienceThinTrackerAuraForUnit = function(unit)
         return nil
     end
 
-    local guid = addon.GetCleanUnitGUID(unit)
-    local state = guid and addon.prescienceThinTrackerAuraStatesByGUID[guid]
+    local stateKey = addon.GetUnitStateKey(unit)
+    local state = stateKey and addon.prescienceThinTrackerAuraStatesByGUID[stateKey]
     if type(state) ~= "table" then
         return nil
     end
@@ -2700,7 +2730,7 @@ addon.GetObservedPrescienceThinTrackerAuraForUnit = function(unit)
         return state
     end
 
-    addon.prescienceThinTrackerAuraStatesByGUID[guid] = nil
+    addon.prescienceThinTrackerAuraStatesByGUID[stateKey] = nil
     return nil
 end
 
@@ -2997,6 +3027,7 @@ local function CreateSelectedPlayerFrame(playerName, class, PlayerRole, unitInde
         return
     end
     identityKey = identityKey or playerName
+    addon.CacheUnitStateKey(unitIndex, identityKey)
     local frameIndex = #selectedPlayerFrames + 1
     checkboxStates[identityKey] = true
     selectedPlayerFrames[frameIndex] = CreateFrame("Button", "EvokerAugPartyFrame" .. unittt, UIParent,
@@ -4728,6 +4759,7 @@ local function AddHomePartyInfo(partyMembers, unit)
         return
     end
 
+    addon.CacheUnitStateKey(unit, identityKey)
     local combatRole = addon.GetUnitCombatRole(unit)
 
     if name and combatRole then
@@ -4752,6 +4784,7 @@ GetHomePartyInfos = function()
         local class = GetUnitClassToken("player")
         local combatRole = addon.GetUnitCombatRole("player")
         if identityKey and name and class and combatRole then
+            addon.CacheUnitStateKey("player", identityKey)
             table.insert(partyMembers,
                 { name = name, identityKey = identityKey, class = strupper(string.gsub(class, "%s+", "")), role = combatRole, unit = "player" })
         end
