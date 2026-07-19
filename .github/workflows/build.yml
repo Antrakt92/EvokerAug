@@ -1,22 +1,85 @@
-name: Packager
+name: Package and release
 
 on:
   push:
     tags:
       - 'v*'
-    paths-ignore:
-      - '.github/**'
+
+concurrency:
+  group: evokeraug-release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
   preflight:
+    if: ${{ github.event.created == true && github.event.forced == false && github.event.deleted == false }}
     runs-on: ubuntu-latest
-
+    outputs:
+      commit: ${{ steps.identity.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Reject ambiguous release rerun
+        if: ${{ github.run_attempt != 1 }}
+        run: |
+          echo "::error::Release reruns are blocked because publication outcomes may be partial or ambiguous."
+          exit 1
 
-      - uses: actions/setup-python@v5
+      - name: Checkout exact release tag
+        # actions/checkout v6 pinned to the upstream tag commit.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
-          python-version: '3.x'
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Record and verify exact release identity
+        id: identity
+        run: |
+          commit=$(git rev-parse HEAD)
+          if ! [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || [ "$commit" != "$GITHUB_SHA" ]; then
+            echo "::error::Release checkout $commit does not match tag event commit $GITHUB_SHA."
+            exit 1
+          fi
+          python scripts/check-release-ref.py --tag "$GITHUB_REF_NAME" --expected-commit "$commit"
+          git fetch --no-tags --prune origin +refs/heads/main:refs/remotes/origin/main
+          set +e
+          git merge-base --is-ancestor "$commit" refs/remotes/origin/main
+          status=$?
+          set -e
+          if [ "$status" -eq 1 ]; then
+            echo "::error::Release commit $commit is not reachable from origin/main."
+            exit 1
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "::error::Could not verify release ancestry: git merge-base exited $status."
+            exit "$status"
+          fi
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse an existing release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          error_file="$(mktemp)"
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json tagName >/dev/null 2>"$error_file"; then
+            echo "::error::Release $GITHUB_REF_NAME already exists; refusing to republish it."
+            rm -f "$error_file"
+            exit 1
+          else
+            status=$?
+          fi
+          error_text="$(tr -d '\r' < "$error_file")"
+          rm -f "$error_file"
+          if [ -n "$error_text" ] && ! grep -Eiq 'not found|no release found' <<< "$error_text"; then
+            echo "::error::Could not determine whether release $GITHUB_REF_NAME already exists. $error_text"
+            exit "$status"
+          fi
+
+      - name: Set up Python
+        # actions/setup-python v6 pinned to the upstream tag commit.
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: '3.13'
 
       - name: Install test tools
         run: |
@@ -27,27 +90,320 @@ jobs:
       - name: Check release version metadata
         run: python scripts/check-release-version.py --tag "$GITHUB_REF_NAME"
 
-      - name: Run static regression checks
-        run: python -m pytest tests/test_midnight_port_static.py -q
+      - name: Run regression checks
+        run: python -m pytest tests/test_midnight_port_static.py tests/test_release_bundle.py -q
 
       - name: Check Lua syntax
         run: luac5.1 -p Core/Config.lua Core/EvokerAug.lua Core/SpellList.lua
 
-  packager:
+  package:
     needs: preflight
     runs-on: ubuntu-latest
     permissions:
-      contents: write
-
+      contents: read
+    outputs:
+      commit: ${{ steps.identity.outputs.commit }}
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout exact release tag
+        # actions/checkout v6 pinned to the upstream tag commit.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
+          persist-credentials: false
 
-      - name: Package 
-        uses: BigWigsMods/packager@12e08b28e30e3df84cc508525ebfcdf3818ad86c
+      - name: Revalidate package identity
+        id: identity
+        run: |
+          commit=$(git rev-parse HEAD)
+          if [ "$commit" != "${{ needs.preflight.outputs.commit }}" ]; then
+            echo "::error::Package checkout $commit does not match verified preflight commit."
+            exit 1
+          fi
+          python scripts/check-release-ref.py --tag "$GITHUB_REF_NAME" --expected-commit "$commit"
+          echo "commit=$commit" >> "$GITHUB_OUTPUT"
+
+      - name: Build exact-tag bundle without uploading
+        # BigWigsMods/packager v2 pinned to the peeled upstream commit.
+        uses: BigWigsMods/packager@6d50adb6e8517eefef63f4afb16a6518166a6b28
+        with:
+          args: -d
+          pandoc: false
+
+      - name: Validate bundle and create GitHub metadata
+        run: >-
+          python scripts/check-release-bundle.py
+          --release-dir .release
+          --tag "$GITHUB_REF_NAME"
+          --write-metadata
+
+      - name: Upload verified exact-tag release bundle
+        # actions/upload-artifact v7.0.1 pinned to the upstream release commit.
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: evokeraug-release-${{ steps.identity.outputs.commit }}
+          path: |
+            .release/EvokerAug-${{ github.ref_name }}.zip
+            .release/release.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    needs: [preflight, package]
+    if: ${{ github.event.created == true && github.event.forced == false && github.event.deleted == false }}
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
+    outputs:
+      marketplaces_configured: ${{ steps.channels.outputs.configured }}
+    steps:
+      - name: Reject ambiguous GitHub publication rerun
+        if: ${{ github.run_attempt != 1 }}
+        run: |
+          echo "::error::GitHub publication reruns are blocked; inspect the exact release state and recover forward."
+          exit 1
+
+      - name: Checkout exact release tag
+        # actions/checkout v6 pinned to the upstream tag commit.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify intended publication channels
+        id: channels
+        shell: pwsh
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           WOWI_API_TOKEN: ${{ secrets.WOWI_API_TOKEN }}
           WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
-          GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $Configured = @(
+            -not [string]::IsNullOrWhiteSpace($env:CF_API_KEY),
+            -not [string]::IsNullOrWhiteSpace($env:WOWI_API_TOKEN),
+            -not [string]::IsNullOrWhiteSpace($env:WAGO_API_TOKEN)
+          ) | Where-Object { $_ }
+          if ($Configured.Count -eq 0) {
+            "configured=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Host "Marketplace credentials are not configured; this release will publish to GitHub only."
+          } elseif ($Configured.Count -eq 3) {
+            "configured=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+            Write-Host "All intended marketplace credentials are configured."
+          } else {
+            throw "Marketplace credentials are only partially configured; refusing an incomplete release."
+          }
+
+      - name: Verify immutable release policy
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.IMMUTABLE_RELEASES_READ_TOKEN }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:GH_TOKEN)) {
+            throw "IMMUTABLE_RELEASES_READ_TOKEN is required to verify repository release policy."
+          }
+          $Policy = gh api "repos/$env:GITHUB_REPOSITORY/immutable-releases" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or
+              $null -eq $Policy -or
+              $Policy.enabled -isnot [bool] -or
+              -not $Policy.enabled) {
+            throw "Repository release immutability must be enabled before publishing $env:GITHUB_REF_NAME."
+          }
+          $Summaries = @(gh api "repos/$env:GITHUB_REPOSITORY/rulesets?includes_parents=false" | ConvertFrom-Json |
+            Where-Object { $_.name -ceq "Protect release tags" -and $_.target -ceq "tag" })
+          if ($LASTEXITCODE -ne 0 -or $Summaries.Count -ne 1) {
+            throw "Repository must have exactly one Protect release tags ruleset."
+          }
+          $Ruleset = gh api "repos/$env:GITHUB_REPOSITORY/rulesets/$($Summaries[0].id)?includes_parents=false" | ConvertFrom-Json
+          $RuleTypes = @($Ruleset.rules | ForEach-Object { [string]$_.type } | Sort-Object)
+          if ($LASTEXITCODE -ne 0 -or
+              $Ruleset.enforcement -cne "active" -or
+              @($Ruleset.bypass_actors).Count -ne 0 -or
+              @($Ruleset.conditions.ref_name.include).Count -ne 1 -or
+              [string]$Ruleset.conditions.ref_name.include[0] -cne "refs/tags/v*" -or
+              @($Ruleset.conditions.ref_name.exclude).Count -ne 0 -or
+              ($RuleTypes -join ",") -cne "deletion,non_fast_forward") {
+            throw "Release tags must reject deletion and non-fast-forward updates without bypass actors."
+          }
+
+      - name: Revalidate exact release identity
+        shell: pwsh
+        run: |
+          $Commit = (git rev-parse HEAD).Trim()
+          if ($Commit -cne "${{ needs.package.outputs.commit }}") {
+            throw "Release checkout does not match the verified package commit."
+          }
+          python scripts/check-release-ref.py --tag $env:GITHUB_REF_NAME --expected-commit $Commit
+          if ($LASTEXITCODE -ne 0) {
+            throw "Exact release ref changed before artifact download."
+          }
+
+      - name: Download verified exact-tag release bundle
+        # actions/download-artifact v8.0.1 pinned to the upstream release commit.
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: evokeraug-release-${{ needs.package.outputs.commit }}
+          path: ${{ runner.temp }}/evokeraug-release
+
+      - name: Publish verified immutable GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $Commit = (git rev-parse HEAD).Trim()
+          $ReleaseDir = Join-Path $env:RUNNER_TEMP "evokeraug-release"
+          python scripts/check-release-bundle.py --release-dir $ReleaseDir --tag $env:GITHUB_REF_NAME
+          if ($LASTEXITCODE -ne 0) {
+            throw "Downloaded release bundle failed validation."
+          }
+          python scripts/check-release-ref.py --tag $env:GITHUB_REF_NAME --expected-commit $Commit
+          if ($LASTEXITCODE -ne 0) {
+            throw "Exact release ref changed before GitHub draft creation."
+          }
+
+          $ZipName = "EvokerAug-$($env:GITHUB_REF_NAME).zip"
+          $ZipPath = Join-Path $ReleaseDir $ZipName
+          $MetadataPath = Join-Path $ReleaseDir "release.json"
+          # SYNC: BigWigs Packager treats only tags containing alpha or beta as prereleases.
+          $Prerelease = $env:GITHUB_REF_NAME -match '(?i)(alpha|beta)'
+          $CreateArgs = @(
+            "release", "create", $env:GITHUB_REF_NAME,
+            $ZipPath, $MetadataPath,
+            "--repo", $env:GITHUB_REPOSITORY,
+            "--verify-tag", "--draft",
+            "--title", $env:GITHUB_REF_NAME,
+            "--notes-file", "CHANGELOG.md"
+          )
+          & gh @CreateArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub draft creation failed for $env:GITHUB_REF_NAME."
+          }
+
+          $Expected = @{
+            $ZipName = $ZipPath
+            "release.json" = $MetadataPath
+          }
+          $Draft = gh release view $env:GITHUB_REF_NAME `
+            --repo $env:GITHUB_REPOSITORY `
+            --json tagName,isDraft,isPrerelease,assets | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or
+              $Draft.tagName -cne $env:GITHUB_REF_NAME -or
+              -not [bool]$Draft.isDraft -or
+              [bool]$Draft.isPrerelease -or
+              @($Draft.assets).Count -ne $Expected.Count) {
+            throw "GitHub draft does not match the exact release identity and asset count."
+          }
+          foreach ($Name in $Expected.Keys) {
+            $Assets = @($Draft.assets | Where-Object { $_.name -ceq $Name })
+            $Path = $Expected[$Name]
+            $Hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+            $Size = (Get-Item -LiteralPath $Path).Length
+            if ($Assets.Count -ne 1 -or
+                [string]$Assets[0].digest -cne "sha256:$Hash" -or
+                [long]$Assets[0].size -ne $Size) {
+              throw "GitHub draft asset digest or size mismatch: $Name"
+            }
+          }
+
+          python scripts/check-release-ref.py --tag $env:GITHUB_REF_NAME --expected-commit $Commit
+          if ($LASTEXITCODE -ne 0) {
+            throw "Exact release ref changed before immutable publication."
+          }
+          $EditArgs = @(
+            "release", "edit", $env:GITHUB_REF_NAME,
+            "--repo", $env:GITHUB_REPOSITORY,
+            "--draft=false"
+          )
+          if ($Prerelease) {
+            $EditArgs += "--prerelease"
+          } else {
+            $EditArgs += @("--prerelease=false", "--latest")
+          }
+          & gh @EditArgs
+          if ($LASTEXITCODE -ne 0) {
+            throw "GitHub refused to publish $env:GITHUB_REF_NAME."
+          }
+
+          $Deadline = (Get-Date).AddSeconds(60)
+          do {
+            $Published = gh api "repos/$env:GITHUB_REPOSITORY/releases/tags/$env:GITHUB_REF_NAME" | ConvertFrom-Json
+            if ($LASTEXITCODE -eq 0 -and
+                $Published.tag_name -ceq $env:GITHUB_REF_NAME -and
+                $Published.draft -is [bool] -and -not $Published.draft -and
+                $Published.prerelease -is [bool] -and $Published.prerelease -eq $Prerelease -and
+                $Published.immutable -is [bool] -and $Published.immutable -and
+                @($Published.assets).Count -eq $Expected.Count) {
+              $Valid = $true
+              foreach ($Name in $Expected.Keys) {
+                $Assets = @($Published.assets | Where-Object { $_.name -ceq $Name })
+                $Path = $Expected[$Name]
+                $Hash = (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+                $Size = (Get-Item -LiteralPath $Path).Length
+                if ($Assets.Count -ne 1 -or
+                    [string]$Assets[0].digest -cne "sha256:$Hash" -or
+                    [long]$Assets[0].size -ne $Size) {
+                  $Valid = $false
+                  break
+                }
+              }
+              if ($Valid) {
+                python scripts/check-release-ref.py --tag $env:GITHUB_REF_NAME --expected-commit $Commit
+                if ($LASTEXITCODE -ne 0) {
+                  throw "Exact release ref changed while GitHub publication was becoming immutable."
+                }
+                Write-Host "Published immutable GitHub release matches the verified exact-tag bundle."
+                exit 0
+              }
+            }
+            Start-Sleep -Seconds 5
+          } while ((Get-Date) -lt $Deadline)
+          throw "Published GitHub release did not become immutable or match the verified bundle."
+
+  marketplace-release:
+    needs: release
+    if: ${{ needs.release.outputs.marketplaces_configured == 'true' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Reject ambiguous marketplace rerun
+        if: ${{ github.run_attempt != 1 }}
+        run: |
+          echo "::error::Marketplace reruns are blocked because prior upload outcomes may be partial or ambiguous."
+          exit 1
+
+      - name: Checkout exact immutable release tag
+        # actions/checkout v6 pinned to the upstream tag commit.
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Recheck all marketplace credentials
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          WOWI_API_TOKEN: ${{ secrets.WOWI_API_TOKEN }}
+          WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}
+        run: |
+          if [[ -z "$CF_API_KEY" || -z "$WOWI_API_TOKEN" || -z "$WAGO_API_TOKEN" ]]; then
+            echo "::error::All intended marketplace credentials are required for marketplace publication."
+            exit 1
+          fi
+
+      - name: Verify immutable GitHub release identity
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          commit=$(git rev-parse HEAD)
+          python scripts/check-release-ref.py --tag "$GITHUB_REF_NAME" --expected-commit "$commit"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$GITHUB_REF_NAME" --jq .immutable)" = "true"
+
+      - name: Publish exact tag to marketplaces
+        # BigWigsMods/packager v2 pinned to the peeled upstream commit.
+        uses: BigWigsMods/packager@6d50adb6e8517eefef63f4afb16a6518166a6b28
+        with:
+          pandoc: false
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          WOWI_API_TOKEN: ${{ secrets.WOWI_API_TOKEN }}
+          WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}

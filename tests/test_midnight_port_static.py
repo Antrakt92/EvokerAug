@@ -1661,11 +1661,13 @@ def test_packager_uses_curated_changelog_for_release_notes():
 
 def test_release_workflow_gates_packager_on_static_checks():
     assert re.search(r"(?m)^  preflight:\s*$", WORKFLOW)
-    assert re.search(r"(?m)^  packager:\s*$", WORKFLOW)
+    assert re.search(r"(?m)^  package:\s*$", WORKFLOW)
+    assert re.search(r"(?m)^  release:\s*$", WORKFLOW)
+    assert re.search(r"(?m)^  marketplace-release:\s*$", WORKFLOW)
     assert re.search(r"(?m)^    needs: preflight\s*$", WORKFLOW)
     assert 'python scripts/check-release-version.py --tag "$GITHUB_REF_NAME"' in WORKFLOW
-    assert "python -m pip install pytest" in WORKFLOW
-    assert "python -m pytest tests/test_midnight_port_static.py -q" in WORKFLOW
+    assert "python -m pip install pytest==8.4.1" in WORKFLOW
+    assert "python -m pytest tests/test_midnight_port_static.py tests/test_release_bundle.py -q" in WORKFLOW
     assert "sudo apt-get install -y lua5.1" in WORKFLOW
     assert "luac5.1 -p Core/Config.lua Core/EvokerAug.lua Core/SpellList.lua" in WORKFLOW
 
@@ -1675,22 +1677,33 @@ def test_release_workflow_pins_packager_action():
     assert re.search(r"uses:\s+BigWigsMods/packager@[0-9a-f]{40}", WORKFLOW)
 
 
-def test_release_workflow_uses_scoped_builtin_github_token():
-    match = re.search(
-        r"(?ms)^  packager:\s*\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\s*\n|\Z)",
-        WORKFLOW,
-    )
-    assert match, "packager job is missing"
-    packager_job = match.group(0)
-    permissions = re.search(
-        r"(?m)^    permissions:\s*\n(?P<body>(?:      [^\n]+\n?)+)",
-        packager_job,
-    )
-    assert permissions, "packager permissions are missing"
-    assert permissions.group("body").strip() == "contents: write"
-    assert "GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}" in packager_job
+def test_release_workflow_publishes_github_immutably_with_scoped_jobs():
+    assert "group: evokeraug-release" in WORKFLOW
+    assert WORKFLOW.count("github.run_attempt != 1") == 3
+    assert "IMMUTABLE_RELEASES_READ_TOKEN" in WORKFLOW
+    assert "Protect release tags" in WORKFLOW
+    assert "deletion,non_fast_forward" in WORKFLOW
+    assert "actions/upload-artifact@" in WORKFLOW
+    assert "include-hidden-files: true" in WORKFLOW
+    assert "actions/download-artifact@" in WORKFLOW
+    assert '"release", "create"' in WORKFLOW
+    assert "--draft" in WORKFLOW
+    assert '"release", "edit"' in WORKFLOW
+    assert ".immutable" in WORKFLOW
+    assert WORKFLOW.count("scripts/check-release-ref.py") >= 6
+    assert "GITHUB_OAUTH" not in WORKFLOW
     assert "EVOKER_TOKEN" not in WORKFLOW
     assert "write-all" not in WORKFLOW
+    assert "(alpha|beta)" in WORKFLOW
+
+
+def test_release_workflow_treats_marketplaces_as_explicit_optional_bundle():
+    assert "Marketplace credentials are not configured; this release will publish to GitHub only." in WORKFLOW
+    assert "Marketplace credentials are only partially configured" in WORKFLOW
+    assert "needs.release.outputs.marketplaces_configured == 'true'" in WORKFLOW
+    assert "CF_API_KEY: ${{ secrets.CF_API_KEY }}" in WORKFLOW
+    assert "WOWI_API_TOKEN: ${{ secrets.WOWI_API_TOKEN }}" in WORKFLOW
+    assert "WAGO_API_TOKEN: ${{ secrets.WAGO_API_TOKEN }}" in WORKFLOW
 
 
 def test_release_version_preflight_accepts_matching_metadata():
