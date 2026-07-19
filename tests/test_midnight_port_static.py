@@ -1675,6 +1675,24 @@ def test_release_workflow_pins_packager_action():
     assert re.search(r"uses:\s+BigWigsMods/packager@[0-9a-f]{40}", WORKFLOW)
 
 
+def test_release_workflow_uses_scoped_builtin_github_token():
+    match = re.search(
+        r"(?ms)^  packager:\s*\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\s*\n|\Z)",
+        WORKFLOW,
+    )
+    assert match, "packager job is missing"
+    packager_job = match.group(0)
+    permissions = re.search(
+        r"(?m)^    permissions:\s*\n(?P<body>(?:      [^\n]+\n?)+)",
+        packager_job,
+    )
+    assert permissions, "packager permissions are missing"
+    assert permissions.group("body").strip() == "contents: write"
+    assert "GITHUB_OAUTH: ${{ secrets.GITHUB_TOKEN }}" in packager_job
+    assert "EVOKER_TOKEN" not in WORKFLOW
+    assert "write-all" not in WORKFLOW
+
+
 def test_release_version_preflight_accepts_matching_metadata():
     result = subprocess.run(
         [
