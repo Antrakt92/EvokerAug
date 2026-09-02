@@ -2,6 +2,7 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import shutil
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +33,18 @@ def function_body(source: str, name: str) -> str:
     )
     end = match.end() + next_match.start() if next_match else len(source)
     return source[match.start() : end]
+
+
+def test_ebon_progress_aura_read_budget_and_lifecycle():
+    lua = shutil.which("lua5.1")
+    assert lua, "Lua 5.1 is required for the progress-bar behavioral regression"
+    subprocess.run([lua, "tests/check_ebon_progress.lua"], cwd=ROOT, check=True)
+    handler = CORE[CORE.index('SetScript("OnEvent", function(self, event, unit, info, spellID, maybeSpellID)'):]
+    dirty_gate = handler[:handler.index('if event == "GROUP_ROSTER_UPDATE"')]
+    assert 'event == "UNIT_AURA" and unit == "player"' in dirty_gate
+    assert 'event == "PLAYER_ENTERING_WORLD"' in dirty_gate
+    assert 'event == "PLAYER_REGEN_ENABLED"' in dirty_gate
+    assert "progressBar.auraDirty = true" in dirty_gate
 
 
 def test_toc_is_ready_for_local_midnight_install():

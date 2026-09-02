@@ -91,6 +91,8 @@ addon.Config = {
     ["version"] = "1.0.24-midnight.1",
     ["changelog"] = [=[
 v1.0.24-midnight.1
+    - Ebon Might progress now reuses event-refreshed aura timing while preserving smooth animation.
+    - Party cooldown tracking handles restricted combat identities and range information more safely.
     - Midnight compatibility pass: updated TOC metadata, spellID aura tracking, localized class handling, and combat-safe frame updates.
     - New profiles now start with the frame unlocked so it can be positioned immediately, then locked from the right-click menu.
     - Prescience Bar now uses a dark track with a class-coloured fill that shrinks as Prescience expires.

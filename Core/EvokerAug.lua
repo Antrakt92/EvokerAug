@@ -1110,6 +1110,7 @@ local function SyncProgressBarVisibility()
         and selectedPlayerFrameContainer:IsShown()
 
     if shouldShow then
+        progressBar.auraDirty = true
         progressBar:Show()
         if progressBar.text then
             progressBar.text:Show()
@@ -1145,19 +1146,31 @@ local function CreateProgressBar()
 
 
         selectedPlayerFrameContainer:SetScript("OnUpdate", function()
-            local aura = FindFirstAuraBySpellIDs("player", EBON_MIGHT_SPELL_IDS)
-            if not aura or not IsCleanPositiveNumber(aura.expirationTime) or not IsCleanPositiveNumber(aura.duration) then
+            -- Aura events coalesce the lookup; only cached timing animates per frame.
+            if progressBar.auraDirty then
+                progressBar.auraDirty = nil
+                local aura = FindFirstAuraBySpellIDs("player", EBON_MIGHT_SPELL_IDS)
+                if aura and IsCleanPositiveNumber(aura.expirationTime) and IsCleanPositiveNumber(aura.duration)
+                    and aura.expirationTime < math.huge and aura.duration < math.huge then
+                    progressBar.auraExpirationTime = aura.expirationTime
+                    progressBar.auraDuration = aura.duration
+                else
+                    progressBar.auraExpirationTime = nil
+                    progressBar.auraDuration = nil
+                end
+            end
+            if not progressBar.auraExpirationTime then
                 progressBar:SetValue(0)
                 return
             end
 
-            local remainingTime = aura.expirationTime - GetTime()
+            local remainingTime = progressBar.auraExpirationTime - GetTime()
             if remainingTime <= 0 then
                 progressBar:SetValue(0)
                 return
             end
 
-            progressBar:SetValue((remainingTime / aura.duration) * 100)
+            progressBar:SetValue((remainingTime / progressBar.auraDuration) * 100)
         end)
     elseif not addon.db.profile.ebonmightProgressBarEnable then
         selectedPlayerFrameContainer:SetScript("OnUpdate", nil)
@@ -4524,6 +4537,10 @@ function addon:OnEnable() -- PLAYER_LOGIN
     end)
 
     selectedPlayerFrameContainer:SetScript("OnEvent", function(self, event, unit, info, spellID, maybeSpellID)
+        if progressBar and (event == "PLAYER_ENTERING_WORLD" or event == "PLAYER_REGEN_ENABLED"
+            or (event == "UNIT_AURA" and unit == "player")) then
+            progressBar.auraDirty = true
+        end
         if event == "GROUP_ROSTER_UPDATE" then
             local _, instanceType = IsInInstance()
             RefreshRuntimeFrames()

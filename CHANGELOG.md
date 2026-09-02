@@ -1,9 +1,11 @@
 # EvokerAug Changelog
 
-## v1.0.24-midnight.1 - 02-Jun-2026
+## v1.0.24-midnight.1 - 02-Sep-2026
 
 ### Fixed
 
+- Reduced repeated Ebon Might aura reads while preserving smooth progress-bar animation and aura extension/removal updates.
+- Improved party cooldown tracking when combat restricts unit identities and range information.
 - Updated Retail metadata for Midnight 12.0.5/12.0.7 clients.
 - Switched tracked buff detection from localized aura names to spell IDs.
 - Guarded aura timer math against Midnight secret-tagged numeric values.
